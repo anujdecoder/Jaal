@@ -182,8 +182,16 @@ func main() {
 
 	introspection.AddIntrospectionToSchema(schema)
 
+	// The GraphQL API is mounted at /graphql. The playground (for
+	// exploring the schema and running queries) is served at the root
+	// path "/". This is a common pattern so that visiting http://localhost:9000
+	// opens the playground automatically.
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	log.Println("Running")
+	http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
+
+	log.Println("Running on :9000")
+	log.Println("GraphQL playground available at http://localhost:9000")
+	log.Println("GraphQL endpoint at http://localhost:9000/graphql")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		panic(err)
 	}

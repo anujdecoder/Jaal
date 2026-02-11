@@ -13,10 +13,14 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 * Union Support
 * In build include and skip directives
 * Protocol buffers API generation
+* GraphQL Playground (GraphiQL) for exploring schema and running queries
 
 ## Getting Started
 
 The following example depicts how to build a simple graphQL server using jaal.
+When the server starts, a GraphQL playground (powered by GraphiQL) is automatically
+served at the root path (http://localhost:9000) for easy schema exploration
+and query testing. The GraphQL endpoint itself is at `/graphql`.
 
 ``` Go
 package main
@@ -141,8 +145,19 @@ func main() {
 
     introspection.AddIntrospectionToSchema(schema)
 
+    // Mount the GraphQL handler at /graphql. The PlaygroundHandler serves
+    // an interactive GraphiQL UI at the root path "/" (and any other paths
+    // not matched by more specific handlers). This way, opening
+    // http://localhost:9000 in a browser shows the playground immediately.
+    //
+    // Note that ServeMux selects the most specific pattern, so /graphql
+    // takes precedence over /.
     http.Handle("/graphql", jaal.HTTPHandler(schema))
-    log.Println("Running")
+    http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
+
+    log.Println("Running on :9000")
+    log.Println("  GraphQL playground: http://localhost:9000")
+    log.Println("  GraphQL endpoint:   http://localhost:9000/graphql")
     if err := http.ListenAndServe(":9000", nil); err != nil {
         panic(err)
     }
@@ -271,8 +286,13 @@ func main() {
 	schema := sb.MustBuild()
 	introspection.AddIntrospectionToSchema(schema)
 
+	// Serve the GraphQL endpoint and playground (see Getting Started
+	// section for details).
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	fmt.Println("Running")
+	http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
+	fmt.Println("Running on :9000")
+	fmt.Println("  GraphQL playground: http://localhost:9000")
+	fmt.Println("  GraphQL endpoint:   http://localhost:9000/graphql")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		panic(err)
 	}

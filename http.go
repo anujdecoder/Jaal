@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"go.appointy.com/jaal/graphql"
@@ -138,4 +139,100 @@ func ExtractVariables(ctx context.Context) map[string]interface{} {
 
 func addVariables(ctx context.Context, v map[string]interface{}) context.Context {
 	return context.WithValue(ctx, graphqlVariableKey, v)
+}
+
+// playgroundHTML is a simple HTML page that loads GraphiQL from CDN
+// to provide an interactive GraphQL playground. It is used by
+// PlaygroundHandler.
+const playgroundHTML = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>%s</title>
+    <style>
+        body {
+            height: 100%%;
+            margin: 0;
+            overflow: hidden;
+        }
+        #graphiql {
+            height: 100vh;
+        }
+    </style>
+    <!--
+      GraphiQL is served from unpkg CDN for simplicity. You can also
+      bundle it locally if you prefer to avoid external dependencies.
+      See: https://github.com/graphql/graphiql
+    -->
+    <link rel="stylesheet" href="https://unpkg.com/graphiql@1.4.0/graphiql.min.css" />
+    <script src="https://unpkg.com/react@16.14.0/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@16.14.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/graphiql@1.4.0/graphiql.min.js"></script>
+</head>
+<body>
+    <div id="graphiql">Loading...</div>
+    <script>
+      // The GraphQL fetcher posts to the graphqlEndpoint.
+      function graphQLFetcher(graphQLParams) {
+        return fetch(
+          '%s',
+          {
+            method: 'post',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(graphQLParams),
+            credentials: 'omit',
+          },
+        ).then(function (response) {
+          return response.json().catch(function () {
+            return response.text();
+          });
+        });
+      }
+
+      ReactDOM.render(
+        React.createElement(GraphiQL, {
+          fetcher: graphQLFetcher,
+        }),
+        document.getElementById('graphiql'),
+      );
+    </script>
+</body>
+</html>`
+
+// PlaygroundHandler returns an HTTP handler that serves an interactive
+// GraphiQL playground. This allows browsing the schema, writing and
+// executing queries/mutations directly in the browser when the server
+// is running.
+//
+// The graphqlEndpoint is typically "/graphql" (the path where
+// HTTPHandler is mounted).
+//
+// Typical usage in main():
+//   http.Handle("/graphql", jaal.HTTPHandler(schema))
+//   // Serve playground for all other paths (e.g. root "/")
+//   http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
+//
+// Note: This uses external CDN resources; in production consider
+// hosting the assets locally for offline use or to reduce latency.
+func PlaygroundHandler(title, graphqlEndpoint string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Support GET (and HEAD for completeness) to serve the playground UI.
+		// This allows tools like curl -I to work and follows common HTTP practices.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.Method == http.MethodHead {
+			// For HEAD, don't write body.
+			return
+		}
+		// Note: fmt.Fprintf is safe here as the template is static and
+		// endpoints are controlled by the caller.
+		_, _ = fmt.Fprintf(w, playgroundHTML, title, graphqlEndpoint)
+	})
 }
