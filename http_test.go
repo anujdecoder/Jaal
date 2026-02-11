@@ -29,6 +29,8 @@ func testHTTPRequest(req *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestHTTPMustPost(t *testing.T) {
+	// GET now serves the GraphiQL playground (automatic feature). The test
+	// previously expected an error, but now checks for the playground HTML.
 	req, err := http.NewRequest("GET", "/graphql", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +42,10 @@ func TestHTTPMustPost(t *testing.T) {
 		t.Errorf("expected 200, but received %d", rr.Code)
 	}
 
-	if diff := pretty.Compare(rr.Body.String(), `{"data":null,"errors":[{"message":"request must be a POST","extensions":{"code":"Unknown"},"paths":[]}]}`); diff != "" {
-		t.Errorf("expected response to match, but received %s", diff)
+	// Check for key parts of the playground HTML (GraphiQL UI).
+	body := rr.Body.String()
+	if !strings.Contains(body, "<title>Jaal Playground</title>") || !strings.Contains(body, "graphiql") {
+		t.Errorf("expected playground HTML, but received: %s", body)
 	}
 }
 
