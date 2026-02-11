@@ -30,3 +30,5 @@ require (
 	golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 // indirect
 	google.golang.org/api v0.6.0 // indirect
 )
+
+replace go.appointy.com/jaal => ./

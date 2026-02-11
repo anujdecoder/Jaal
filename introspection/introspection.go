@@ -492,8 +492,26 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
 	object.FieldFunc("__schema", func() *Schema {
-		var types []Type
+		// Ensure standard scalars are always present in the introspection
+		// types list. GraphiQL (and other clients) require a complete schema
+		// including all built-ins like Boolean (used in directives/args) to
+		// avoid "unknown type: Boolean" errors during client-side schema
+		// construction. We add them here (at query time) so they are
+		// guaranteed even if missing from user schema collection.
+		builtinScalars := map[string]graphql.Type{
+			"String":  &graphql.Scalar{Type: "String"},
+			"Int":     &graphql.Scalar{Type: "Int"},
+			"Float":   &graphql.Scalar{Type: "Float"},
+			"Boolean": &graphql.Scalar{Type: "Boolean"},
+			"ID":      &graphql.Scalar{Type: "ID"},
+		}
+		for name, scalar := range builtinScalars {
+			if _, ok := s.types[name]; !ok {
+				s.types[name] = scalar
+			}
+		}
 
+		var types []Type
 		for _, typ := range s.types {
 			types = append(types, Type{Inner: typ})
 		}
@@ -539,12 +557,28 @@ func (s *introspection) schema() *graphql.Schema {
 	return schema.MustBuild()
 }
 
-// AddIntrospectionToSchema adds the introspection fields to existing schema
+// AddIntrospectionToSchema adds the introspection fields to existing schema.
 func AddIntrospectionToSchema(schema *graphql.Schema) {
 	types := make(map[string]graphql.Type)
 	collectTypes(schema.Query, types)
 	collectTypes(schema.Mutation, types)
 	collectTypes(schema.Subscription, types)
+
+	// Ensure built-in scalars are present (see comment in __schema resolver
+	// for why). We do it here too for the types map passed to introspection.
+	builtinScalars := map[string]graphql.Type{
+		"String":  &graphql.Scalar{Type: "String"},
+		"Int":     &graphql.Scalar{Type: "Int"},
+		"Float":   &graphql.Scalar{Type: "Float"},
+		"Boolean": &graphql.Scalar{Type: "Boolean"},
+		"ID":      &graphql.Scalar{Type: "ID"},
+	}
+	for name, scalar := range builtinScalars {
+		if _, ok := types[name]; !ok {
+			types[name] = scalar
+		}
+	}
+
 	is := &introspection{
 		types:        types,
 		query:        schema.Query,

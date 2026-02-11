@@ -141,9 +141,12 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// playgroundHTML is a simple HTML page that loads GraphiQL from CDN
-// to provide an interactive GraphQL playground. It is used by
-// PlaygroundHandler.
+// playgroundHTML is a simple HTML page that loads GraphQL Playground (from
+// Apollo/Prisma) from CDN to provide an interactive GraphQL playground UI.
+// It is used by PlaygroundHandler. We use this over GraphiQL because it
+// handles incomplete/missing built-in scalar references in introspection
+// responses more gracefully in some setups (avoiding "unknown type: Boolean"
+// errors).
 const playgroundHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -155,57 +158,38 @@ const playgroundHTML = `<!DOCTYPE html>
             margin: 0;
             overflow: hidden;
         }
-        #graphiql {
+        #root {
             height: 100vh;
         }
     </style>
     <!--
-      GraphiQL is served from unpkg CDN for simplicity. You can also
-      bundle it locally if you prefer to avoid external dependencies.
-      See: https://github.com/graphql/graphiql
+      GraphQL Playground is served from jsDelivr CDN for simplicity (no
+      external React deps needed). It provides tabs for query, variables,
+      headers, docs, and schema. See: https://github.com/graphql/graphql-playground
     -->
-    <link rel="stylesheet" href="https://unpkg.com/graphiql@1.4.0/graphiql.min.css" />
-    <script src="https://unpkg.com/react@16.14.0/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@16.14.0/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/graphiql@1.4.0/graphiql.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/graphql-playground-react/build/static/css/index.css" />
+    <script src="https://cdn.jsdelivr.net/npm/graphql-playground-react/build/static/js/middleware.js"></script>
 </head>
 <body>
-    <div id="graphiql">Loading...</div>
+    <div id="root">Loading...</div>
     <script>
-      // The GraphQL fetcher posts to the graphqlEndpoint.
-      function graphQLFetcher(graphQLParams) {
-        return fetch(
-          '%s',
-          {
-            method: 'post',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(graphQLParams),
-            credentials: 'omit',
-          },
-        ).then(function (response) {
-          return response.json().catch(function () {
-            return response.text();
-          });
-        });
-      }
-
-      ReactDOM.render(
-        React.createElement(GraphiQL, {
-          fetcher: graphQLFetcher,
-        }),
-        document.getElementById('graphiql'),
-      );
+      window.addEventListener('load', function (event) {
+        // Render the playground pointing to our GraphQL endpoint.
+        // It will automatically run introspection on load to show schema/docs.
+        GraphQLPlayground.init(document.getElementById('root'), {
+          endpoint: '%s',
+          // Can add subscriptionEndpoint if needed for WS support.
+        })
+      })
     </script>
 </body>
 </html>`
 
 // PlaygroundHandler returns an HTTP handler that serves an interactive
-// GraphiQL playground. This allows browsing the schema, writing and
-// executing queries/mutations directly in the browser when the server
-// is running.
+// GraphQL Playground UI (from Apollo). This allows browsing the schema,
+// writing and executing queries/mutations directly in the browser when
+// the server is running. It is more robust with Jaal's introspection
+// implementation than some GraphiQL versions.
 //
 // The graphqlEndpoint is typically "/graphql" (the path where
 // HTTPHandler is mounted).
