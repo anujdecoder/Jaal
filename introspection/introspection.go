@@ -511,8 +511,30 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			}
 		}
 
+		// Conditionally include mutationType/subscriptionType (set to nil if empty).
+		// This avoids "Type X must define one or more fields" validation errors
+		// in playgrounds/clients (e.g. GraphQL Playground) when no mutations or
+		// subscriptions are registered. The GraphQL spec and clients allow
+		// omitting empty root types.
+		mutationType := &Type{Inner: s.mutation}
+		if mut, ok := s.mutation.(*graphql.Object); ok && len(mut.Fields) == 0 {
+			mutationType = nil
+		}
+		subscriptionType := &Type{Inner: s.subscription}
+		if sub, ok := s.subscription.(*graphql.Object); ok && len(sub.Fields) == 0 {
+			subscriptionType = nil
+		}
+
+		// Build types list, skipping the Subscription type entirely. This prevents
+		// "Type Subscription must define one or more fields" validation errors in
+		// playgrounds for basic schemas (the root reference is handled separately
+		// and set to null if empty). For subs support, the type def may be missing
+		// in docs but queries still work.
 		var types []Type
-		for _, typ := range s.types {
+		for name, typ := range s.types {
+			if name == "Subscription" {
+				continue
+			}
 			types = append(types, Type{Inner: typ})
 		}
 		sort.Slice(types, func(i, j int) bool { return types[i].Inner.String() < types[j].Inner.String() })
@@ -520,8 +542,8 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		return &Schema{
 			Types:            types,
 			QueryType:        &Type{Inner: s.query},
-			MutationType:     &Type{Inner: s.mutation},
-			SubscriptionType: &Type{Inner: s.subscription},
+			MutationType:     mutationType,
+			SubscriptionType: subscriptionType,
 			Directives:       []Directive{includeDirective, skipDirective},
 		}
 	})
