@@ -62,6 +62,21 @@ type httpResponse struct {
 }
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Serve the GraphiQL playground UI on GET (and HEAD for completeness, e.g.
+	// curl -I) requests (automatic, no extra config or handler needed). This
+	// makes visiting the /graphql URL in a browser show the interactive
+	// playground. POST requests are handled as GraphQL queries below.
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if r.Method == http.MethodHead {
+			// For HEAD, don't write body.
+			return
+		}
+		// Use the current request path as the GraphQL endpoint (self-referential).
+		_, _ = fmt.Fprintf(w, playgroundHTML, "Jaal Playground", r.URL.Path)
+		return
+	}
+
 	writeResponse := func(value interface{}, err error) {
 		response := httpResponse{}
 		if err != nil {
@@ -210,13 +225,17 @@ const playgroundHTML = `<!DOCTYPE html>
 // executing queries/mutations directly in the browser when the server
 // is running.
 //
+// NOTE: HTTPHandler now automatically serves the playground on GET requests
+// to the same route (no extra handler/config needed for basic use). Use this
+// only if you want the playground on a separate path.
+//
 // The graphqlEndpoint is typically "/graphql" (the path where
 // HTTPHandler is mounted).
 //
 // Typical usage in main():
 //   http.Handle("/graphql", jaal.HTTPHandler(schema))
-//   // Serve playground for all other paths (e.g. root "/")
-//   http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
+//   // Optional: serve playground on a different path
+//   http.Handle("/playground", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
 //
 // Note: This uses external CDN resources; in production consider
 // hosting the assets locally for offline use or to reduce latency.

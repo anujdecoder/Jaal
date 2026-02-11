@@ -18,9 +18,9 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 ## Getting Started
 
 The following example depicts how to build a simple graphQL server using jaal.
-When the server starts, a GraphQL playground (powered by GraphiQL) is automatically
-served at the root path (http://localhost:9000) for easy schema exploration
-and query testing. The GraphQL endpoint itself is at `/graphql`.
+The GraphQL endpoint (and built-in GraphiQL playground) is mounted at `/graphql`.
+Visiting it in a browser automatically shows the interactive playground for schema
+exploration and query testing (no extra handlers or config needed).
 
 ``` Go
 package main
@@ -145,19 +145,13 @@ func main() {
 
     introspection.AddIntrospectionToSchema(schema)
 
-    // Mount the GraphQL handler at /graphql. The PlaygroundHandler serves
-    // an interactive GraphiQL UI at the root path "/" (and any other paths
-    // not matched by more specific handlers). This way, opening
-    // http://localhost:9000 in a browser shows the playground immediately.
-    //
-    // Note that ServeMux selects the most specific pattern, so /graphql
-    // takes precedence over /.
+    // The GraphQL endpoint (and built-in GraphiQL playground) is mounted at /graphql.
+    // Visiting it in a browser automatically shows the interactive playground for
+    // schema exploration and query testing (no extra handlers or config needed).
     http.Handle("/graphql", jaal.HTTPHandler(schema))
-    http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
 
     log.Println("Running on :9000")
-    log.Println("  GraphQL playground: http://localhost:9000")
-    log.Println("  GraphQL endpoint:   http://localhost:9000/graphql")
+    log.Println("GraphQL playground + endpoint: http://localhost:9000/graphql")
     if err := http.ListenAndServe(":9000", nil); err != nil {
         panic(err)
     }
@@ -286,13 +280,12 @@ func main() {
 	schema := sb.MustBuild()
 	introspection.AddIntrospectionToSchema(schema)
 
-	// Serve the GraphQL endpoint and playground (see Getting Started
-	// section for details).
+	// The GraphQL endpoint (and built-in GraphiQL playground) is mounted at /graphql.
+	// Visiting it in a browser automatically shows the interactive playground (see
+	// Getting Started section for details).
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	http.Handle("/", jaal.PlaygroundHandler("Jaal Playground", "/graphql"))
 	fmt.Println("Running on :9000")
-	fmt.Println("  GraphQL playground: http://localhost:9000")
-	fmt.Println("  GraphQL endpoint:   http://localhost:9000/graphql")
+	fmt.Println("GraphQL playground + endpoint: http://localhost:9000/graphql")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		panic(err)
 	}

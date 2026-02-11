@@ -69,7 +69,7 @@ type EnumValue struct {
 	Name              string
 	Description       string
 	IsDeprecated      bool
-	DeprecationReason string
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
@@ -83,8 +83,14 @@ func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in EnumValue) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in EnumValue) string {
-		return in.DeprecationReason
+	obj.FieldFunc("deprecationReason", func(in EnumValue) *string {
+		if in.IsDeprecated {
+			// Return the *string (already a pointer; nil if not deprecated). This
+			// ensures JSON omitempty makes the field absent/null when not deprecated,
+			// preventing GraphiQL from mis-marking fields as deprecated.
+			return in.DeprecationReason
+		}
+		return nil
 	})
 }
 
@@ -342,7 +348,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			for k, v := range t.ReverseMap {
 				val := fmt.Sprintf("%v", k)
 				enumVals = append(enumVals,
-					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: ""})
+					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: nil})
 			}
 			sort.Slice(enumVals, func(i, j int) bool { return enumVals[i].Name < enumVals[j].Name })
 			return enumVals
@@ -357,7 +363,7 @@ type field struct {
 	Args              []InputValue
 	Type              Type
 	IsDeprecated      bool
-	DeprecationReason string
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerField(schema *schemabuilder.Schema) {
@@ -377,8 +383,14 @@ func (s *introspection) registerField(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in field) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in field) string {
-		return in.DeprecationReason
+	obj.FieldFunc("deprecationReason", func(in field) *string {
+		if in.IsDeprecated {
+			// Return the *string (already a pointer; nil if not deprecated). This
+			// ensures JSON omitempty makes the field absent/null when not deprecated,
+			// preventing GraphiQL from mis-marking fields as deprecated.
+			return in.DeprecationReason
+		}
+		return nil
 	})
 }
 
