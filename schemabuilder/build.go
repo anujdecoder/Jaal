@@ -35,12 +35,14 @@ func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 		return &graphql.NonNull{Type: &graphql.Enum{Type: typeName, Values: values, ReverseMap: sb.enumMappings[nodeType].ReverseMap}}, nil
 	}
 
-	if typeName, ok := getScalar(nodeType); ok {
-		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName}}, nil
+	if typeName, specURL, ok := getScalar(nodeType); ok {
+		// Include SpecifiedByURL for @specifiedBy support on scalars (new for compliance).
+		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName, SpecifiedByURL: specURL}}, nil
 	}
 	if nodeType.Kind() == reflect.Ptr {
-		if typeName, ok := getScalar(nodeType.Elem()); ok {
-			return &graphql.Scalar{Type: typeName}, nil // XXX: prefix typ with "*"
+		if typeName, specURL, ok := getScalar(nodeType.Elem()); ok {
+			// Include SpecifiedByURL for @specifiedBy support on scalars (new for compliance).
+			return &graphql.Scalar{Type: typeName, SpecifiedByURL: specURL}, nil // XXX: prefix typ with "*"
 		}
 	}
 
@@ -90,14 +92,15 @@ func (sb *schemaBuilder) getEnum(typ reflect.Type) (string, []string, bool) {
 }
 
 // getScalar grabs the appropriate scalar graphql field type name for the passed
-// in variable reflect type.
-func getScalar(typ reflect.Type) (string, bool) {
-	for match, name := range scalars {
+// in variable reflect type. Also returns the optional specifiedByURL (for
+// @specifiedBy directive support).
+func getScalar(typ reflect.Type) (name, specifiedByURL string, ok bool) {
+	for match, n := range scalars {
 		if typesIdenticalOrScalarAliases(match, typ) {
-			return name, true
+			return n, getSpecifiedByURL(n), true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 var scalars = map[reflect.Type]string{

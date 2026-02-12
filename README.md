@@ -163,6 +163,8 @@ In the above example, we registered all the operations, inputs & payloads on the
 ## Custom Scalar Registration
 
 ```Go
+// Note: RegisterScalar now accepts optional specifiedByURL (4th arg, "" if none)
+// for @specifiedBy directive support (Sept 2025 compliance; see COMPLIANCE_PLAN.md).
 typ := reflect.TypeOf(time.Time{})
 schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
     v, ok := value.(string)
@@ -178,7 +180,7 @@ schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest refle
     dest.Set(reflect.ValueOf(t))
 
     return nil
-})
+}, "https://www.rfc-editor.org/rfc/rfc3339")  // optional spec URL
 ```
 
 ## Interface Registration

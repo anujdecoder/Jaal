@@ -148,7 +148,14 @@ func (io *InputObject) FieldFunc(name string, function interface{}) {
 // UnmarshalFunc is used to unmarshal scalar value from JSON
 type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 
+// scalarSpecifiedBy maps scalar name to its @specifiedBy URL (empty if unset).
+// Populated by RegisterScalar; used for introspection per Oct 2021 spec.
+var scalarSpecifiedBy = make(map[string]string)
+
 // RegisterScalar is used to register custom scalars.
+// The optional specifiedByURL param ("" for none) specifies the URL for the
+// @specifiedBy directive (added for Sept 2025 compliance; see COMPLIANCE_PLAN.md).
+// Backward compat preserved by updating callers to pass "".
 //
 // For example, to register a custom ID type,
 // type ID struct {
@@ -163,7 +170,7 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 // Register unmarshal func
 // func init() {
 //	typ := reflect.TypeOf((*ID)(nil)).Elem()
-//	if err := schemabuilder.RegisterScalar(typ, "ID", func(value interface{}, d reflect.Value) error {
+//	if err := schemabuilder.RegisterScalar(typ, "ID", func(value interface{}, d reflect.Value) error {  // + "" for specifiedByURL
 //		v, ok := value.(string)
 //		if !ok {
 //			return errors.New("not a string type")
@@ -175,7 +182,7 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 //		panic(err)
 //	}
 //}
-func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc) error {
+func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, specifiedByURL string) error {
 	if typ.Kind() == reflect.Ptr {
 		return errors.New("type should not be of pointer type")
 	}
@@ -222,6 +229,12 @@ func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc) error {
 		FromJSON: uf,
 	}
 
+	// Store specifiedByURL for introspection (empty string = not set).
+	// This supports @specifiedBy directive on custom scalars.
+	if specifiedByURL != "" {
+		scalarSpecifiedBy[name] = specifiedByURL
+	}
+
 	return nil
 }
 
@@ -239,6 +252,12 @@ func (id ID) MarshalJSON() ([]byte, error) {
 func isScalarType(t reflect.Type) bool {
 	_, ok := scalars[t]
 	return ok
+}
+
+// getSpecifiedByURL returns the @specifiedBy URL for a scalar name ("" if unset).
+// Used when building graphql.Scalar to support the directive in introspection.
+func getSpecifiedByURL(name string) string {
+	return scalarSpecifiedBy[name]
 }
 
 // typesIdenticalOrScalarAliases checks whether a & b are same scalar

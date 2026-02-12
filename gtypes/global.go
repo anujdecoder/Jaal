@@ -22,9 +22,10 @@ func init() {
 // RegisterEmpty registers empty as an scalar type
 func RegisterEmpty() {
 	typ := reflect.TypeOf(empty.Empty{})
+	// Updated call with "" for specifiedByURL (new param for @specifiedBy support).
 	schemabuilder.RegisterScalar(typ, "Empty", func(value interface{}, target reflect.Value) error {
 		return nil
-	})
+	}, "")
 }
 
 // RegisterInputFieldMask registers FieldMask as GraphQL Input

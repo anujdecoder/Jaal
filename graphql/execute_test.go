@@ -55,7 +55,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 		Resolve: func(ctx context.Context, source, args interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			return "static", nil
 		},
-		Type:           &graphql.Scalar{Type: "string"},
+		Type:           &graphql.Scalar{Type: "string", SpecifiedByURL: ""},
 		ParseArguments: noArguments,
 	}
 
@@ -63,7 +63,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 		Resolve: func(ctx context.Context, source, args interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			return nil, errors.New("test error")
 		},
-		Type:           &graphql.Scalar{Type: "string"},
+		Type:           &graphql.Scalar{Type: "string", SpecifiedByURL: ""},
 		ParseArguments: noArguments,
 	}
 
@@ -71,7 +71,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 		Resolve: func(ctx context.Context, source, args interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			panic("test panic")
 		},
-		Type:           &graphql.Scalar{Type: "string"},
+		Type:           &graphql.Scalar{Type: "string", SpecifiedByURL: ""},
 		ParseArguments: noArguments,
 	}
 
@@ -79,7 +79,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 		Resolve: func(ctx context.Context, source, args interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			return source.(int), nil
 		},
-		Type:           &graphql.Scalar{Type: "int"},
+		Type:           &graphql.Scalar{Type: "int", SpecifiedByURL: ""},
 		ParseArguments: noArguments,
 	}
 
@@ -91,7 +91,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 			}
 			return &temp, nil
 		},
-		Type:           &graphql.Scalar{Type: "int"},
+		Type:           &graphql.Scalar{Type: "int", SpecifiedByURL: ""},
 		ParseArguments: noArguments,
 	}
 
@@ -107,7 +107,7 @@ func makeQuery(onArgParse *func()) *graphql.Object {
 		Resolve: func(ctx context.Context, source, args interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			return 1, nil
 		},
-		Type: &graphql.Scalar{Type: "int"},
+		Type: &graphql.Scalar{Type: "int", SpecifiedByURL: ""},
 		ParseArguments: func(json interface{}) (interface{}, error) {
 			if onArgParse != nil {
 				(*onArgParse)()

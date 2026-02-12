@@ -27,6 +27,9 @@ const (
 	FRAGMENT_SPREAD                       = "FRAGMENT_SPREAD"
 	INLINE_FRAGMENT                       = "INLINE_FRAGMENT"
 	SUBSCRIPTION                          = "SUBSCRIPTION"
+	// SCALAR_DIRECTIVE location for @specifiedBy directive (per Oct 2021 spec; named
+	// to avoid conflict with TypeKind.SCALAR).
+	SCALAR_DIRECTIVE      DirectiveLocation = "SCALAR"
 )
 
 type TypeKind string
@@ -135,6 +138,8 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
 		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
+		// Added for @specifiedBy (SCALAR location).
+		"SCALAR":              DirectiveLocation("SCALAR"),
 	})
 }
 
@@ -225,6 +230,20 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return ""
 		}
+	})
+
+	// specifiedByURL field for __Type (SCALAR only), per @specifiedBy directive
+	// (Oct 2021+ spec). Returns URL string or null if not set. Supports custom
+	// scalars registered via RegisterScalar.
+	object.FieldFunc("specifiedByURL", func(t Type) *string {
+		switch s := t.Inner.(type) {
+		case *graphql.Scalar:
+			if s.SpecifiedByURL != "" {
+				url := s.SpecifiedByURL
+				return &url
+			}
+		}
+		return nil
 	})
 
 	object.FieldFunc("interfaces", func(t Type) []Type {
@@ -477,7 +496,7 @@ var includeDirective = Directive{
 	Args: []InputValue{
 		InputValue{
 			Name:        "if",
-			Type:        Type{Inner: &graphql.Scalar{Type: "Boolean"}},
+			Type:        Type{Inner: &graphql.Scalar{Type: "Boolean", SpecifiedByURL: ""}},
 			Description: "Included when true.",
 		},
 	},
@@ -494,8 +513,25 @@ var skipDirective = Directive{
 	Args: []InputValue{
 		InputValue{
 			Name:        "if",
-			Type:        Type{Inner: &graphql.Scalar{Type: "Boolean"}},
+			Type:        Type{Inner: &graphql.Scalar{Type: "Boolean", SpecifiedByURL: ""}},
 			Description: "Skipped when true.",
+		},
+	},
+}
+
+// specifiedByDirective is the built-in @specifiedBy directive for custom scalars
+// (per GraphQL Oct 2021+ spec). Only applicable to SCALAR; provides spec URL.
+var specifiedByDirective = Directive{
+	Description: "Exposes a URL that specifies the behavior of this scalar.",
+	Locations: []DirectiveLocation{
+		SCALAR_DIRECTIVE,
+	},
+	Name: "specifiedBy",
+	Args: []InputValue{
+		InputValue{
+			Name:        "url",
+			Type:        Type{Inner: &graphql.Scalar{Type: "String"}},
+			Description: "The URL that specifies the behavior of this scalar.",
 		},
 	},
 }
@@ -511,11 +547,12 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		// construction. We add them here (at query time) so they are
 		// guaranteed even if missing from user schema collection.
 		builtinScalars := map[string]graphql.Type{
-			"String":  &graphql.Scalar{Type: "String"},
-			"Int":     &graphql.Scalar{Type: "Int"},
-			"Float":   &graphql.Scalar{Type: "Float"},
-			"Boolean": &graphql.Scalar{Type: "Boolean"},
-			"ID":      &graphql.Scalar{Type: "ID"},
+			// Updated to include SpecifiedByURL: "" for @specifiedBy compat (new Scalar field).
+			"String":  &graphql.Scalar{Type: "String", SpecifiedByURL: ""},
+			"Int":     &graphql.Scalar{Type: "Int", SpecifiedByURL: ""},
+			"Float":   &graphql.Scalar{Type: "Float", SpecifiedByURL: ""},
+			"Boolean": &graphql.Scalar{Type: "Boolean", SpecifiedByURL: ""},
+			"ID":      &graphql.Scalar{Type: "ID", SpecifiedByURL: ""},
 		}
 		for name, scalar := range builtinScalars {
 			if _, ok := s.types[name]; !ok {
@@ -556,7 +593,8 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     mutationType,
 			SubscriptionType: subscriptionType,
-			Directives:       []Directive{includeDirective, skipDirective},
+			// Include @specifiedBy (new built-in directive for scalar specs).
+			Directives:       []Directive{includeDirective, skipDirective, specifiedByDirective},
 		}
 	})
 
@@ -600,12 +638,13 @@ func AddIntrospectionToSchema(schema *graphql.Schema) {
 
 	// Ensure built-in scalars are present (see comment in __schema resolver
 	// for why). We do it here too for the types map passed to introspection.
+	// Updated with SpecifiedByURL: "" for @specifiedBy support.
 	builtinScalars := map[string]graphql.Type{
-		"String":  &graphql.Scalar{Type: "String"},
-		"Int":     &graphql.Scalar{Type: "Int"},
-		"Float":   &graphql.Scalar{Type: "Float"},
-		"Boolean": &graphql.Scalar{Type: "Boolean"},
-		"ID":      &graphql.Scalar{Type: "ID"},
+		"String":  &graphql.Scalar{Type: "String", SpecifiedByURL: ""},
+		"Int":     &graphql.Scalar{Type: "Int", SpecifiedByURL: ""},
+		"Float":   &graphql.Scalar{Type: "Float", SpecifiedByURL: ""},
+		"Boolean": &graphql.Scalar{Type: "Boolean", SpecifiedByURL: ""},
+		"ID":      &graphql.Scalar{Type: "ID", SpecifiedByURL: ""},
 	}
 	for name, scalar := range builtinScalars {
 		if _, ok := types[name]; !ok {

@@ -115,7 +115,8 @@ func wrapWithZeroValue(inner *argParser, fieldArgTyp graphql.Type) (*argParser, 
 func getScalarArgParser(typ reflect.Type) (*argParser, graphql.Type, bool) {
 	for match, argParser := range scalarArgParsers {
 		if typesIdenticalOrScalarAliases(match, typ) {
-			name, ok := getScalar(typ)
+			// Updated for @specifiedBy: getScalar now returns URL too; include in Scalar.
+			name, specURL, ok := getScalar(typ)
 			if !ok {
 				panic(typ)
 			}
@@ -129,7 +130,7 @@ func getScalarArgParser(typ reflect.Type) (*argParser, graphql.Type, bool) {
 				argParser = &newParser
 			}
 
-			return argParser, &graphql.Scalar{Type: name}, true
+			return argParser, &graphql.Scalar{Type: name, SpecifiedByURL: specURL}, true
 		}
 	}
 	return nil, nil, false

@@ -256,6 +256,10 @@ func TestIntrospectionForInterface(t *testing.T) {
 						map[string]interface{}{
 							"name": "skip",
 						},
+						// Include specifiedBy (added for @specifiedBy support).
+						map[string]interface{}{
+							"name": "specifiedBy",
+						},
 					},
 				},
 			},
@@ -796,6 +800,28 @@ func TestIntrospectionForInterface(t *testing.T) {
 				},
 			},
 		},
+		// New test for @specifiedByURL on scalar (DateTime would have URL if registered;
+		// built-ins like String return null). Per plan in COMPLIANCE_PLAN.md.
+		// (Note: DateTime not in this test's schema, so use String for null case.)
+		{
+			name: "Test SCALAR specifiedByURL",
+			query: `
+				{
+					__type(name:"String"){
+						name
+						kind
+						specifiedByURL
+					}
+				}
+			`,
+			expectedResult: map[string]interface{}{
+				"__type": map[string]interface{}{
+					"kind":           "SCALAR",
+					"name":           "String",
+					"specifiedByURL": nil,
+				},
+			},
+		},
 		{
 			name: "Test Directives",
 			query: `
@@ -878,6 +904,31 @@ func TestIntrospectionForInterface(t *testing.T) {
 									"defaultValue": nil,
 									"type": map[string]interface{}{
 										"name":          "Boolean",
+										"kind":          "SCALAR",
+										"description":   "",
+										"fields":        []interface{}{},
+										"interfaces":    []interface{}{},
+										"possibleTypes": []interface{}{},
+										"enumValues":    []interface{}{},
+										"inputFields":   []interface{}{},
+									},
+								},
+							},
+						},
+						// Added expected for @specifiedBy directive (new for compliance).
+						map[string]interface{}{
+							"name":        "specifiedBy",
+							"description": "Exposes a URL that specifies the behavior of this scalar.",
+							"locations": []interface{}{
+								"SCALAR",
+							},
+							"args": []interface{}{
+								map[string]interface{}{
+									"name":         "url",
+									"description":  "The URL that specifies the behavior of this scalar.",
+									"defaultValue": nil,
+									"type": map[string]interface{}{
+										"name":          "String",
 										"kind":          "SCALAR",
 										"description":   "",
 										"fields":        []interface{}{},

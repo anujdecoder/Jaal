@@ -21,6 +21,8 @@ func init() {
 	// schema introspection) + the custom DateTime. The framework handles these
 	// internally, but explicit registration ensures they are always present in
 	// the schema (avoiding any playground validation issues).
+	// Note: Added "" for specifiedByURL param (new optional arg for @specifiedBy support;
+	// see COMPLIANCE_PLAN.md). Built-ins have no URL.
 	_ = schemabuilder.RegisterScalar(reflect.TypeOf(false), "Boolean", func(value interface{}, dest reflect.Value) error {
 		b, ok := value.(bool)
 		if !ok {
@@ -28,7 +30,7 @@ func init() {
 		}
 		dest.Set(reflect.ValueOf(b))
 		return nil
-	})
+	}, "")
 	_ = schemabuilder.RegisterScalar(reflect.TypeOf(0), "Int", func(value interface{}, dest reflect.Value) error {
 		i, ok := value.(int)
 		if !ok {
@@ -41,7 +43,7 @@ func init() {
 		}
 		dest.Set(reflect.ValueOf(i))
 		return nil
-	})
+	}, "")
 	_ = schemabuilder.RegisterScalar(reflect.TypeOf(0.0), "Float", func(value interface{}, dest reflect.Value) error {
 		f, ok := value.(float64)
 		if !ok {
@@ -49,7 +51,7 @@ func init() {
 		}
 		dest.Set(reflect.ValueOf(f))
 		return nil
-	})
+	}, "")
 	_ = schemabuilder.RegisterScalar(reflect.TypeOf(""), "String", func(value interface{}, dest reflect.Value) error {
 		s, ok := value.(string)
 		if !ok {
@@ -57,7 +59,7 @@ func init() {
 		}
 		dest.Set(reflect.ValueOf(s))
 		return nil
-	})
+	}, "")
 	_ = schemabuilder.RegisterScalar(reflect.TypeOf(schemabuilder.ID{}), "ID", func(value interface{}, dest reflect.Value) error {
 		id, ok := value.(schemabuilder.ID)
 		if !ok {
@@ -70,9 +72,10 @@ func init() {
 		}
 		dest.Set(reflect.ValueOf(id))
 		return nil
-	})
+	}, "")
 
 	var typ = reflect.TypeOf(time.Time{})
+	// Register DateTime with example spec URL for @specifiedBy demo (per plan).
 	_ = schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
 		if !ok {
@@ -87,7 +90,7 @@ func init() {
 		dest.Set(reflect.ValueOf(t))
 
 		return nil
-	})
+	}, "https://www.rfc-editor.org/rfc/rfc3339") // Example spec URL for DateTime
 
 }
 
