@@ -2,6 +2,7 @@ package jaal
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,19 @@ import (
 	"go.appointy.com/jaal/graphql"
 	"go.appointy.com/jaal/jerrors"
 )
+
+// Embedded GraphiQL assets (downloaded from CDN once; no external loads at runtime).
+//go:embed playground/react.production.min.js
+var reactJS string
+
+//go:embed playground/react-dom.production.min.js
+var reactDOMJS string
+
+//go:embed playground/graphiql.min.js
+var graphiqlJS string
+
+//go:embed playground/graphiql.min.css
+var graphiqlCSS string
 
 type HandlerOption func(*handlerOptions)
 
@@ -67,13 +81,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// makes visiting the /graphql URL in a browser show the interactive
 	// playground. POST requests are handled as GraphQL queries below.
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if r.Method == http.MethodHead {
-			// For HEAD, don't write body.
-			return
-		}
 		// Use the current request path as the GraphQL endpoint (self-referential).
-		_, _ = fmt.Fprintf(w, playgroundHTML, "Jaal Playground", r.URL.Path)
+		servePlayground(w, "Jaal Playground", r.URL.Path)
 		return
 	}
 
@@ -156,13 +165,10 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// playgroundHTML is a simple HTML page that loads GraphQL Playground (from
-// Apollo/Prisma) from CDN to provide an interactive GraphQL playground UI.
-// It is used by PlaygroundHandler. We use this over GraphiQL because it
-// handles incomplete/missing built-in scalar references in introspection
-// responses more gracefully in some setups (avoiding "unknown type: Boolean"
-// errors).
-const playgroundHTML = `<!DOCTYPE html>
+// playgroundHTMLTemplate is the GraphiQL playground HTML shell (the %s placeholders
+// are for the title, CSS, 3 JS files, and endpoint; assets are inlined from embeds
+// at runtime to avoid any CDN/external loads).
+const playgroundHTMLTemplate = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
@@ -177,15 +183,18 @@ const playgroundHTML = `<!DOCTYPE html>
             height: 100vh;
         }
     </style>
-    <!--
-      GraphiQL is served from unpkg CDN for simplicity. You can also
-      bundle it locally if you prefer to avoid external dependencies.
-      See: https://github.com/graphql/graphiql
-    -->
-    <link rel="stylesheet" href="https://unpkg.com/graphiql@1.4.0/graphiql.min.css" />
-    <script src="https://unpkg.com/react@16.14.0/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@16.14.0/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/graphiql@1.4.0/graphiql.min.js"></script>
+    <style>
+%s
+    </style>
+    <script>
+%s
+    </script>
+    <script>
+%s
+    </script>
+    <script>
+%s
+    </script>
 </head>
 <body>
     <div id="graphiql">Loading...</div>
@@ -220,6 +229,16 @@ const playgroundHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
+// servePlayground writes the GraphiQL HTML with all assets inlined from embeds
+// (no CDN). Used by both the automatic GET in HTTPHandler and PlaygroundHandler.
+func servePlayground(w http.ResponseWriter, title, graphqlEndpoint string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Inline the embedded CSS/JS (the template placeholders insert them directly
+	// into <style> and <script> tags).
+	html := fmt.Sprintf(playgroundHTMLTemplate, title, graphiqlCSS, reactJS, reactDOMJS, graphiqlJS, graphqlEndpoint)
+	_, _ = w.Write([]byte(html))
+}
+
 // PlaygroundHandler returns an HTTP handler that serves an interactive
 // GraphiQL playground. This allows browsing the schema, writing and
 // executing queries/mutations directly in the browser when the server
@@ -248,13 +267,7 @@ func PlaygroundHandler(title, graphqlEndpoint string) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if r.Method == http.MethodHead {
-			// For HEAD, don't write body.
-			return
-		}
-		// Note: fmt.Fprintf is safe here as the template is static and
-		// endpoints are controlled by the caller.
-		_, _ = fmt.Fprintf(w, playgroundHTML, title, graphqlEndpoint)
+		// Inline assets from embeds (no CDN).
+		servePlayground(w, title, graphqlEndpoint)
 	})
 }
