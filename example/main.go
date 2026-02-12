@@ -17,6 +17,61 @@ import (
 )
 
 func init() {
+	// Register all standard GraphQL scalars (required by GraphiQL for complete
+	// schema introspection) + the custom DateTime. The framework handles these
+	// internally, but explicit registration ensures they are always present in
+	// the schema (avoiding any playground validation issues).
+	_ = schemabuilder.RegisterScalar(reflect.TypeOf(false), "Boolean", func(value interface{}, dest reflect.Value) error {
+		b, ok := value.(bool)
+		if !ok {
+			return errors.New("invalid Boolean")
+		}
+		dest.Set(reflect.ValueOf(b))
+		return nil
+	})
+	_ = schemabuilder.RegisterScalar(reflect.TypeOf(0), "Int", func(value interface{}, dest reflect.Value) error {
+		i, ok := value.(int)
+		if !ok {
+			// Accept float64 too (JSON numbers)
+			if f, ok := value.(float64); ok {
+				dest.Set(reflect.ValueOf(int(f)))
+				return nil
+			}
+			return errors.New("invalid Int")
+		}
+		dest.Set(reflect.ValueOf(i))
+		return nil
+	})
+	_ = schemabuilder.RegisterScalar(reflect.TypeOf(0.0), "Float", func(value interface{}, dest reflect.Value) error {
+		f, ok := value.(float64)
+		if !ok {
+			return errors.New("invalid Float")
+		}
+		dest.Set(reflect.ValueOf(f))
+		return nil
+	})
+	_ = schemabuilder.RegisterScalar(reflect.TypeOf(""), "String", func(value interface{}, dest reflect.Value) error {
+		s, ok := value.(string)
+		if !ok {
+			return errors.New("invalid String")
+		}
+		dest.Set(reflect.ValueOf(s))
+		return nil
+	})
+	_ = schemabuilder.RegisterScalar(reflect.TypeOf(schemabuilder.ID{}), "ID", func(value interface{}, dest reflect.Value) error {
+		id, ok := value.(schemabuilder.ID)
+		if !ok {
+			// Accept string too
+			if s, ok := value.(string); ok {
+				dest.Set(reflect.ValueOf(schemabuilder.ID{Value: s}))
+				return nil
+			}
+			return errors.New("invalid ID")
+		}
+		dest.Set(reflect.ValueOf(id))
+		return nil
+	})
+
 	var typ = reflect.TypeOf(time.Time{})
 	_ = schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
@@ -182,8 +237,14 @@ func main() {
 
 	introspection.AddIntrospectionToSchema(schema)
 
+	// The GraphQL endpoint (and built-in GraphiQL playground) is mounted at /graphql.
+	// Visiting http://localhost:9000/graphql in a browser automatically shows the
+	// interactive playground (no extra handlers or config needed). POST requests
+	// to the same URL execute queries/mutations.
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	log.Println("Running")
+
+	log.Println("Running on :9000")
+	log.Println("GraphQL playground + endpoint: http://localhost:9000/graphql")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		panic(err)
 	}

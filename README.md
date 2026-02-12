@@ -13,10 +13,14 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 * Union Support
 * In build include and skip directives
 * Protocol buffers API generation
+* GraphQL Playground (GraphiQL) for exploring schema and running queries
 
 ## Getting Started
 
 The following example depicts how to build a simple graphQL server using jaal.
+The GraphQL endpoint (and built-in GraphiQL playground) is mounted at `/graphql`.
+Visiting it in a browser automatically shows the interactive playground for schema
+exploration and query testing (no extra handlers or config needed).
 
 ``` Go
 package main
@@ -141,8 +145,13 @@ func main() {
 
     introspection.AddIntrospectionToSchema(schema)
 
+    // The GraphQL endpoint (and built-in GraphiQL playground) is mounted at /graphql.
+    // Visiting it in a browser automatically shows the interactive playground for
+    // schema exploration and query testing (no extra handlers or config needed).
     http.Handle("/graphql", jaal.HTTPHandler(schema))
-    log.Println("Running")
+
+    log.Println("Running on :9000")
+    log.Println("GraphQL playground + endpoint: http://localhost:9000/graphql")
     if err := http.ListenAndServe(":9000", nil); err != nil {
         panic(err)
     }
@@ -271,8 +280,12 @@ func main() {
 	schema := sb.MustBuild()
 	introspection.AddIntrospectionToSchema(schema)
 
+	// The GraphQL endpoint (and built-in GraphiQL playground) is mounted at /graphql.
+	// Visiting it in a browser automatically shows the interactive playground (see
+	// Getting Started section for details).
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	fmt.Println("Running")
+	fmt.Println("Running on :9000")
+	fmt.Println("GraphQL playground + endpoint: http://localhost:9000/graphql")
 	if err := http.ListenAndServe(":9000", nil); err != nil {
 		panic(err)
 	}

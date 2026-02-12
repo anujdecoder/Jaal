@@ -69,7 +69,7 @@ type EnumValue struct {
 	Name              string
 	Description       string
 	IsDeprecated      bool
-	DeprecationReason string
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
@@ -83,8 +83,14 @@ func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in EnumValue) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in EnumValue) string {
-		return in.DeprecationReason
+	obj.FieldFunc("deprecationReason", func(in EnumValue) *string {
+		if in.IsDeprecated {
+			// Return the *string (already a pointer; nil if not deprecated). This
+			// ensures JSON omitempty makes the field absent/null when not deprecated,
+			// preventing GraphiQL from mis-marking fields as deprecated.
+			return in.DeprecationReason
+		}
+		return nil
 	})
 }
 
@@ -342,7 +348,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			for k, v := range t.ReverseMap {
 				val := fmt.Sprintf("%v", k)
 				enumVals = append(enumVals,
-					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: ""})
+					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: nil})
 			}
 			sort.Slice(enumVals, func(i, j int) bool { return enumVals[i].Name < enumVals[j].Name })
 			return enumVals
@@ -357,7 +363,7 @@ type field struct {
 	Args              []InputValue
 	Type              Type
 	IsDeprecated      bool
-	DeprecationReason string
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerField(schema *schemabuilder.Schema) {
@@ -377,8 +383,14 @@ func (s *introspection) registerField(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in field) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in field) string {
-		return in.DeprecationReason
+	obj.FieldFunc("deprecationReason", func(in field) *string {
+		if in.IsDeprecated {
+			// Return the *string (already a pointer; nil if not deprecated). This
+			// ensures JSON omitempty makes the field absent/null when not deprecated,
+			// preventing GraphiQL from mis-marking fields as deprecated.
+			return in.DeprecationReason
+		}
+		return nil
 	})
 }
 
@@ -492,9 +504,49 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
 	object.FieldFunc("__schema", func() *Schema {
-		var types []Type
+		// Ensure standard scalars are always present in the introspection
+		// types list. GraphiQL (and other clients) require a complete schema
+		// including all built-ins like Boolean (used in directives/args) to
+		// avoid "unknown type: Boolean" errors during client-side schema
+		// construction. We add them here (at query time) so they are
+		// guaranteed even if missing from user schema collection.
+		builtinScalars := map[string]graphql.Type{
+			"String":  &graphql.Scalar{Type: "String"},
+			"Int":     &graphql.Scalar{Type: "Int"},
+			"Float":   &graphql.Scalar{Type: "Float"},
+			"Boolean": &graphql.Scalar{Type: "Boolean"},
+			"ID":      &graphql.Scalar{Type: "ID"},
+		}
+		for name, scalar := range builtinScalars {
+			if _, ok := s.types[name]; !ok {
+				s.types[name] = scalar
+			}
+		}
 
-		for _, typ := range s.types {
+		// Conditionally include mutationType/subscriptionType (set to nil if empty).
+		// This avoids "Type X must define one or more fields" validation errors
+		// in playgrounds/clients (e.g. GraphQL Playground) when no mutations or
+		// subscriptions are registered. The GraphQL spec and clients allow
+		// omitting empty root types.
+		mutationType := &Type{Inner: s.mutation}
+		if mut, ok := s.mutation.(*graphql.Object); ok && len(mut.Fields) == 0 {
+			mutationType = nil
+		}
+		subscriptionType := &Type{Inner: s.subscription}
+		if sub, ok := s.subscription.(*graphql.Object); ok && len(sub.Fields) == 0 {
+			subscriptionType = nil
+		}
+
+		// Build types list, skipping the Subscription type entirely. This prevents
+		// "Type Subscription must define one or more fields" validation errors in
+		// playgrounds for basic schemas (the root reference is handled separately
+		// and set to null if empty). For subs support, the type def may be missing
+		// in docs but queries still work.
+		var types []Type
+		for name, typ := range s.types {
+			if name == "Subscription" {
+				continue
+			}
 			types = append(types, Type{Inner: typ})
 		}
 		sort.Slice(types, func(i, j int) bool { return types[i].Inner.String() < types[j].Inner.String() })
@@ -502,8 +554,8 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		return &Schema{
 			Types:            types,
 			QueryType:        &Type{Inner: s.query},
-			MutationType:     &Type{Inner: s.mutation},
-			SubscriptionType: &Type{Inner: s.subscription},
+			MutationType:     mutationType,
+			SubscriptionType: subscriptionType,
 			Directives:       []Directive{includeDirective, skipDirective},
 		}
 	})
@@ -539,12 +591,28 @@ func (s *introspection) schema() *graphql.Schema {
 	return schema.MustBuild()
 }
 
-// AddIntrospectionToSchema adds the introspection fields to existing schema
+// AddIntrospectionToSchema adds the introspection fields to existing schema.
 func AddIntrospectionToSchema(schema *graphql.Schema) {
 	types := make(map[string]graphql.Type)
 	collectTypes(schema.Query, types)
 	collectTypes(schema.Mutation, types)
 	collectTypes(schema.Subscription, types)
+
+	// Ensure built-in scalars are present (see comment in __schema resolver
+	// for why). We do it here too for the types map passed to introspection.
+	builtinScalars := map[string]graphql.Type{
+		"String":  &graphql.Scalar{Type: "String"},
+		"Int":     &graphql.Scalar{Type: "Int"},
+		"Float":   &graphql.Scalar{Type: "Float"},
+		"Boolean": &graphql.Scalar{Type: "Boolean"},
+		"ID":      &graphql.Scalar{Type: "ID"},
+	}
+	for name, scalar := range builtinScalars {
+		if _, ok := types[name]; !ok {
+			types[name] = scalar
+		}
+	}
+
 	is := &introspection{
 		types:        types,
 		query:        schema.Query,
