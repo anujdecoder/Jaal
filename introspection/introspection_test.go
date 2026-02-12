@@ -256,9 +256,12 @@ func TestIntrospectionForInterface(t *testing.T) {
 						map[string]interface{}{
 							"name": "skip",
 						},
-						// Include specifiedBy (added for @specifiedBy support).
+						// Include specifiedBy and oneOf (added for compliance).
 						map[string]interface{}{
 							"name": "specifiedBy",
+						},
+						map[string]interface{}{
+							"name": "oneOf",
 						},
 					},
 				},
@@ -939,6 +942,15 @@ func TestIntrospectionForInterface(t *testing.T) {
 									},
 								},
 							},
+						},
+						// Added expected for @oneOf directive (new for input oneOf support).
+						map[string]interface{}{
+							"name":        "oneOf",
+							"description": "Indicates exactly one field must be supplied.",
+							"locations": []interface{}{
+								"INPUT_OBJECT",
+							},
+							"args": []interface{}{},
 						},
 					},
 				},

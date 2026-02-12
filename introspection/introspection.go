@@ -30,6 +30,9 @@ const (
 	// SCALAR_DIRECTIVE location for @specifiedBy directive (per Oct 2021 spec; named
 	// to avoid conflict with TypeKind.SCALAR).
 	SCALAR_DIRECTIVE      DirectiveLocation = "SCALAR"
+	// INPUT_OBJECT_DIRECTIVE for @oneOf directive (per 2021+ spec; named to avoid
+	// conflict with TypeKind.INPUT_OBJECT).
+	INPUT_OBJECT_DIRECTIVE DirectiveLocation = "INPUT_OBJECT"
 )
 
 type TypeKind string
@@ -140,6 +143,8 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
 		// Added for @specifiedBy (SCALAR location).
 		"SCALAR":              DirectiveLocation("SCALAR"),
+		// Added for @oneOf (INPUT_OBJECT location).
+		"INPUT_OBJECT":        DirectiveLocation("INPUT_OBJECT"),
 	})
 }
 
@@ -357,6 +362,16 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		}
 	})
 
+	// isOneOf field for __Type (INPUT_OBJECT only), per @oneOf directive
+	// (2021+ spec). True if marked via InputObject.OneOf().
+	object.FieldFunc("isOneOf", func(t Type) bool {
+		switch io := t.Inner.(type) {
+		case *graphql.InputObject:
+			return io.IsOneOf
+		}
+		return false
+	})
+
 	object.FieldFunc("enumValues", func(t Type, args struct {
 		IncludeDeprecated *bool
 	}) []EnumValue {
@@ -536,6 +551,18 @@ var specifiedByDirective = Directive{
 	},
 }
 
+// oneOfDirective is the built-in @oneOf directive for InputObjects (per 2021+ spec).
+// Enforces exactly one field in input; builds on Jaal's protoc oneof support.
+var oneOfDirective = Directive{
+	Description: "Indicates exactly one field must be supplied.",
+	Locations: []DirectiveLocation{
+		INPUT_OBJECT_DIRECTIVE,
+	},
+	Name: "oneOf",
+	// No args for @oneOf.
+	Args: []InputValue{},
+}
+
 func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
@@ -593,8 +620,8 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     mutationType,
 			SubscriptionType: subscriptionType,
-			// Include @specifiedBy (new built-in directive for scalar specs).
-			Directives:       []Directive{includeDirective, skipDirective, specifiedByDirective},
+			// Include @specifiedBy and @oneOf (new built-ins for scalar/input specs).
+			Directives:       []Directive{includeDirective, skipDirective, specifiedByDirective, oneOfDirective},
 		}
 	})
 

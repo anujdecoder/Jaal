@@ -35,10 +35,12 @@ func (s *Object) Key(f string) {
 }
 
 // InputObject represents the input objects passed in queries,mutations and subscriptions
+// IsOneOf (for @oneOf per spec) marks it to enforce exactly one field in inputs (builds on protoc oneof).
 type InputObject struct {
 	Name   string
 	Type   interface{}
 	Fields map[string]interface{}
+	IsOneOf bool // Default false for compat
 }
 
 // A Methods map represents the set of methods exposed on a Object.

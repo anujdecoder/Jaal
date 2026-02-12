@@ -75,9 +75,11 @@ func (l *List) String() string {
 }
 
 //InputObject defines the object in argument of a query, mutation or subscription
+// IsOneOf (for @oneOf directive per 2021+ spec) enforces exactly one field set in input.
 type InputObject struct {
 	Name        string
 	InputFields map[string]Type
+	IsOneOf     bool
 }
 
 func (io *InputObject) isType() {}

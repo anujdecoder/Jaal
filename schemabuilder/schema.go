@@ -124,13 +124,21 @@ func (s *Schema) InputObject(name string, typ interface{}) *InputObject {
 		}
 	}
 	inputObject := &InputObject{
-		Name:   name,
-		Type:   typ,
-		Fields: map[string]interface{}{},
+		Name:    name,
+		Type:    typ,
+		Fields:  map[string]interface{}{},
+		IsOneOf: false, // Default; use .OneOf() to enable per spec
 	}
 	s.inputObjects[name] = inputObject
 
 	return inputObject
+}
+
+// OneOf marks the InputObject to enforce exactly one field provided in inputs
+// (for @oneOf directive support; see COMPLIANCE_PLAN.md Priority 2).
+// Call after InputObject() e.g. input := schema.InputObject(...); input.OneOf()
+func (io *InputObject) OneOf() {
+	io.IsOneOf = true  // Note: field renamed to IsOneOf to avoid name clash with method
 }
 
 type query struct{}
@@ -268,9 +276,10 @@ func copyObject(object *Object) *Object {
 
 func copyInputObject(input *InputObject) *InputObject {
 	copy := &InputObject{
-		Name:   input.Name,
-		Type:   input.Type,
-		Fields: make(map[string]interface{}),
+		Name:    input.Name,
+		Type:    input.Type,
+		Fields:  make(map[string]interface{}),
+		IsOneOf: input.IsOneOf, // Copy oneOf flag for clone support
 	}
 
 	for name, field := range input.Fields {

@@ -54,6 +54,7 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 	argType := &graphql.InputObject{
 		Name:        typ.Name(),
 		InputFields: make(map[string]graphql.Type),
+		IsOneOf:     false, // Default for arg structs; oneOf via registered InputObject
 	}
 
 	// Cache type information ahead of time to catch self-reference
@@ -134,6 +135,7 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 	argType := &graphql.InputObject{
 		Name:        obj.Name,
 		InputFields: make(map[string]graphql.Type),
+		IsOneOf:     obj.IsOneOf, // Propagate oneOf marker from registration
 	}
 
 	for name, function := range obj.Fields {
@@ -158,6 +160,14 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 			asMap, ok := value.(map[string]interface{})
 			if !ok {
 				return errors.New("not an object")
+			}
+
+			// oneOf enforcement (per spec; exactly 1 field key in input map).
+			// Builds on protoc oneof->Union mapping.
+			if obj.IsOneOf {
+				if len(asMap) != 1 {
+					return fmt.Errorf("oneOf input %s must specify exactly one field, got %d", obj.Name, len(asMap))
+				}
 			}
 
 			target := reflect.New(typ)
