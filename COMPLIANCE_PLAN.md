@@ -127,3 +127,74 @@ Changes must preserve June 2018 compat (e.g., no breaking RegisterScalar calls).
 
 (End of @specifiedBy section. Ready for review before any code changes.)
 
+## Detailed Plan for Priority 2: oneOf InputObjects (build on existing protoc support)
+### Explanation of How oneOf is Expected to Work
+Per GraphQL spec (Oct 2021 draft + later ratification in 2022/2025 editions, Section 3.10 "Input Objects" and directives):
+- **Purpose**: Marks an Input Object as "oneOf" to enforce that **exactly one** of its fields is provided in input args (no more, no less; like a tagged union or discriminated union for inputs). Prevents invalid states (e.g., multiple fields set for mutually exclusive options like "create via ID or via email").
+- **Usage in Schema** (SDL example):
+  ```
+  input CreateUserInput @oneOf {
+    id: ID
+    email: String
+  }
+  ```
+  - Applied via `@oneOf` directive (or code marker in Jaal).
+  - Validation: At query parse/execution, if input provided with 0 or >1 fields set → error (spec-compliant "oneOf" violation).
+  - Jaal's protoc-gen already maps protobuf oneof to Union, so build on that for native code-first support.
+- **Introspection**: 
+  - __InputObject type gains `isOneOf: Boolean` field (true if marked).
+  - Shows in __type for INPUT_OBJECT.
+- **Validation/Behavior**:
+  - Only on InputObjects; args to fields/queries/mutations using it must satisfy exactly-one.
+  - No change to output/resolvers; affects input parsing in schemabuilder/input.go and graphql/validate.go/execute.go.
+  - Errors: Spec-defined message for invalid oneOf inputs.
+- **Why for Jaal**: Enhances InputObject (used heavily in mutations); aligns with existing Union/protoc support for full type system compliance.
+
+### Plan of Code Changes Required (High-Level, NO Implementation Yet)
+1. **schemabuilder/ layer**:
+   - Extend InputObject struct/registration (input_object.go, schema.go) to support oneOf marker (e.g., `InputObject.OneOf bool` or @oneOf via FieldFunc/ new method like `.OneOf()`).
+   - Update reflect/input parsing to track fields set and enforce exactly 1 in FromJSON.
+   - Handle in build/getType for inputs; add to Object/InputObject clone etc.
+   - Backward compat: Default false for existing inputs.
+
+2. **graphql/ layer**:
+   - Update InputObject in types.go to include `IsOneOf bool`.
+   - Extend validate.go for input arg validation (check field count ==1 if oneOf).
+   - Update execute/parser for input coercion to trigger oneOf checks.
+   - Minimal parser update if SDL support added later.
+
+3. **introspection/ layer**:
+   - Add `isOneOf` FieldFunc to __Type for INPUT_OBJECT in registerType.
+   - Include in collectTypes, __InputValue if needed.
+   - Register @oneOf directive (like @specifiedBy) in registerDirective + schema.Directives.
+
+4. **Other**:
+   - schemabuilder/schema.go: Support in Build for oneOf inputs.
+   - Error handling: Use jerrors or spec errors for violations.
+   - Docs/examples: Update README with oneOf InputObject example (build on protoc mention).
+
+Changes must preserve existing InputObject usage/compat.
+
+### Tests Needed to Verify Changes
+- **Unit tests** (schemabuilder/input*_test.go if exist, or add to build_test; graphql/validate_test.go, execute_test.go):
+  - Register InputObject with .OneOf(true); test input parsing succeeds only for exactly 1 field.
+  - Test failures: 0 fields or 2+ fields → specific error.
+  - Existing inputs remain non-oneOf (multi-fields OK).
+- **Introspection tests** (introspection_test.go, introspection_test.go):
+  - Introspect __type on oneOf InputObject: Assert `isOneOf: true`; false for normal.
+  - Include in __schema types/directives test.
+- **End-to-end** (end_to_end_test.go, http_test.go):
+  - Mutation/query with oneOf input arg; valid/invalid cases.
+  - Full schema + execution; ensure no regression on normal inputs/unions.
+- **Compatibility**: Re-run all existing input/mutation tests (e.g., in example, end_to_end); test with protoc-generated oneOf if applicable.
+- **Coverage**: Edge cases (nested, optional fields, nulls); spec example queries.
+
+### Noting Plan for Review
+- This plan appended to COMPLIANCE_PLAN.md (see above).
+- Review steps: Verify explanation vs. spec (focus on input validation), check code impact on existing InputObjects, approve tests.
+- Post-review: Follow exactly (use todos, start with tests, etc.).
+- Risks: Input parsing breakage; ensure protoc compat; performance on large inputs.
+
+(End of oneOf plan section. Ready for review before implementation.)
+
+
