@@ -10,8 +10,8 @@ import (
 	testex "go.appointy.com/jaal/test-example"
 )
 
-// TestFullFeatures follows test_plan.md exactly: detailed subtests for ALL Jaal features in server.go (scalars/custom/@specifiedBy, queries/fields, mutations/oneOf, unions, interfaces, enums, introspection).
-// Each covers the plan items.
+// TestFullFeatures follows test_plan.md: detailed subtests for ALL Jaal features in server.go (UUID @specifiedBy, Role enum, Node interface, User/DeletedUser, UserResult union, UserStatus, UserIdentifierInput @oneOf, CreateUserInput, Query/Mutation).
+// Each covers the plan items (introspection, queries, mutations, oneOf cases, errors, etc).
 func TestFullFeatures(t *testing.T) {
 	handler := testex.HTTPHandler()
 	ts := httptest.NewServer(handler)
@@ -86,76 +86,88 @@ func TestFullFeatures(t *testing.T) {
 		require.True(t, hasSpecifiedBy)
 		require.True(t, hasOneOf)
 
-		// Assert types/fields (Character interface, Droid/Human, Episode enum, ReviewInput oneOf, etc).
+		// Assert types/fields (UUID scalar, Role enum, Node interface, UserResult union, UserIdentifierInput oneOf, etc).
 		types := schema["types"].([]interface{})
 		for _, typ := range types {
 			tm := typ.(map[string]interface{})
 			name := tm["name"].(string)
 			kind := tm["kind"].(string)
-			if name == "Character" {
+			if name == "Node" {
 				require.Equal(t, "INTERFACE", kind)
 			}
-			if name == "Droid" || name == "Human" {
+			if name == "User" || name == "DeletedUser" {
 				require.Equal(t, "OBJECT", kind)
 			}
-			if name == "Episode" {
+			if name == "Role" {
 				require.Equal(t, "ENUM", kind)
 			}
-			if name == "ReviewInput" {
+			if name == "UserIdentifierInput" {
 				require.Equal(t, "INPUT_OBJECT", kind)
 				require.True(t, tm["isOneOf"].(bool))
 			}
-			if name == "ID" {
+			if name == "UUID" {
 				require.Equal(t, "SCALAR", kind)
 				require.NotNil(t, tm["specifiedByURL"])
 			}
 		}
 	})
 
-	t.Run("specifiedByOnID", func(t *testing.T) {
+	t.Run("specifiedByOnUUID", func(t *testing.T) {
 		q := `{
-			__type(name: "ID") {
+			__type(name: "UUID") {
 				name
 				kind
 				specifiedByURL
 			}
 		}`
 		res := postQuery(q)
-		idType := res["data"].(map[string]interface{})["__type"].(map[string]interface{})
-		require.Equal(t, "ID", idType["name"])
-		require.Equal(t, "SCALAR", idType["kind"])
-		require.Equal(t, "https://spec.graphql.org/October2021/#sec-Scalars", idType["specifiedByURL"])
+		uuidType := res["data"].(map[string]interface{})["__type"].(map[string]interface{})
+		require.Equal(t, "UUID", uuidType["name"])
+		require.Equal(t, "SCALAR", uuidType["kind"])
+		require.Equal(t, "https://tools.ietf.org/html/rfc4122", uuidType["specifiedByURL"])
 	})
 
 	// 3. Query Tests (all queries/fields from schema).
 	t.Run("queries", func(t *testing.T) {
-		// hero with fragment.
+		// me with all fields.
 		q := `{
-			hero {
+			me {
 				id
-				name
-				... on Droid {
-					primaryFunction
+				uuid
+				username
+				email
+				role
+				status {
+					isActive
+					lastLogin
 				}
-				... on Human {
-					height
-					mass
-				}
-				appearsIn
 			}
 		}`
 		res := postQuery(q)
 		require.Nil(t, res["errors"])
 		data := res["data"].(map[string]interface{})
-		require.NotNil(t, data["hero"])
+		require.NotNil(t, data["me"])
 
-		// Other queries.
+		// user with oneOf (id).
 		q = `{
-			character(id: "test") { id name }
-			droid(id: "d1") { id primaryFunction }
-			human(id: "h1") { id height }
-			starship(id: "s1") { id length }
-			reviews(episode: NEWHOPE) { stars commentary }
+			user(by: {id: "u1"}) {
+				... on User {
+					username
+				}
+				... on DeletedUser {
+					deletedAt
+				}
+			}
+		}`
+		res = postQuery(q)
+		require.Nil(t, res["errors"])
+
+		// allUsers.
+		q = `{
+			allUsers {
+				id
+				username
+			}
 		}`
 		res = postQuery(q)
 		require.Nil(t, res["errors"])
@@ -163,76 +175,90 @@ func TestFullFeatures(t *testing.T) {
 
 	// 4. Mutation Tests (fire all, including oneOf).
 	t.Run("mutations", func(t *testing.T) {
-		// createReview with oneOf (stars only).
+		// createUser.
 		q := `mutation {
-			createReview(review: {stars: 5}) {
-				stars
-				commentary
+			createUser(input: {username: "new", email: "new@example.com", role: MEMBER}) {
+				id
+				username
 			}
 		}`
 		res := postQuery(q)
 		require.Nil(t, res["errors"])
-		require.NotNil(t, res["data"].(map[string]interface{})["createReview"])
+		require.NotNil(t, res["data"].(map[string]interface{})["createUser"])
 
-		// Other mutations (stubs).
+		// updateUserRole.
 		q = `mutation {
-			rateFilm(episode: NEWHOPE, rating: THUMBS_UP) { episode }
-			updateHumanName(id: "h1", name: "Luke") { name }
-			deleteStarship(id: "s1")
+			updateUserRole(id: "u1", newRole: ADMIN) {
+				role
+			}
 		}`
 		res = postQuery(q)
 		require.Nil(t, res["errors"])
 	})
 
-	// 5. Edge/Feature Tests (interfaces/unions/enums/oneOf invalid, directives, etc).
-	t.Run("edges", func(t *testing.T) {
-		// oneOf invalid (both fields) → error.
-		q := `mutation {
-			createReview(review: {stars: 5, commentary: "good"})
+	// 5. @oneOf Validation Tests.
+	t.Run("oneOfValidation", func(t *testing.T) {
+		// Case 1: Success (exactly one field: id).
+		q := `{
+			user(by: {id: "u1"}) {
+				... on User {
+					username
+				}
+			}
 		}`
 		res := postQuery(q)
+		require.Nil(t, res["errors"])
+
+		// Case 2: Failure (two fields).
+		q = `{
+			user(by: {id: "u1", email: "test@example.com"}) {
+				... on User {
+					username
+				}
+			}
+		}`
+		res = postQuery(q)
 		require.NotNil(t, res["errors"]) // oneOf violation
 
-		// Interface fragment, union, enum, @skip/@include.
+		// Case 3: Failure (zero fields).
 		q = `{
-			hero {
-				... on Character {
-					id
-					name
+			user(by: {}) {
+				... on User {
+					username
 				}
-				... on Droid {
-					primaryFunction
-				}
-			}
-			reviews(episode: NEWHOPE) @skip(if: false) {
-				stars
 			}
 		}`
 		res = postQuery(q)
-		require.Nil(t, res["errors"])
+		require.NotNil(t, res["errors"]) // oneOf violation
 	})
 
-	// 6. Error Validation Tests (non-existent fields, invalid enum, etc).
-	t.Run("errorValidations", func(t *testing.T) {
-		// Non-existent field.
+	// 6. @specifiedBy Verification (already in introspection).
+
+	// 7. Edge/Feature Tests (interfaces/unions/enums/error cases, non-existent field, etc).
+	t.Run("edges", func(t *testing.T) {
+		// Interface fragment, union.
 		q := `{
-			hero {
-				nonExistentField
+			user(by: {id: "u1"}) {
+				... on Node {
+					id
+				}
 			}
 		}`
 		res := postQuery(q)
+		require.Nil(t, res["errors"])
+
+		// Non-existent field error.
+		q = `{
+			me {
+				nonExistent
+			}
+		}`
+		res = postQuery(q)
 		require.NotNil(t, res["errors"])
 
 		// Invalid enum.
-		q = `{
-			hero(episode: INVALID)
-		}`
-		res = postQuery(q)
-		require.NotNil(t, res["errors"])
-
-		// Missing non-null arg.
-		q = `{
-			character
+		q = `mutation {
+			updateUserRole(id: "u1", newRole: INVALID)
 		}`
 		res = postQuery(q)
 		require.NotNil(t, res["errors"])

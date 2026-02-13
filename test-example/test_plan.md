@@ -1,7 +1,7 @@
-# Test Plan for test-example/server.go
+# Test Plan for test-example/server.go (Updated for New Schema)
 
 ## Overview
-This file lists **detailed tests** to cover **all Jaal features** implemented in server.go (Star Wars schema from graphql.org + @specifiedBy on ID, @oneOf on ReviewInput, mutations/queries/interfaces/unions/enums/scalars/inputs).
+This file lists **detailed tests** to cover **all Jaal features** implemented in server.go (new schema with UUID @specifiedBy scalar, Role enum, Node interface, User/DeletedUser, UserResult union, UserStatus, UserIdentifierInput @oneOf, CreateUserInput, Query/Mutation).
 
 Tests use httptest server + GraphQL queries; assert no errors, data structure, values, introspection.
 
@@ -15,48 +15,47 @@ Tests use httptest server + GraphQL queries; assert no errors, data structure, v
    - Test full introspection query (from graphql.org introspectionQuery).
      - Assert __schema has Query/Mutation types.
      - Assert directives include @specifiedBy (locations SCALAR, args url) and @oneOf (locations INPUT_OBJECT).
-     - Assert types: Character (INTERFACE), Droid/Human (OBJECT implementing Character), Episode (ENUM), ReviewInput (INPUT_OBJECT with isOneOf: true), etc.
-     - Assert ID scalar has specifiedByURL.
-     - Assert fields on all objects (id, name, friends, appearsIn, primaryFunction, height, etc.).
+     - Assert types: UUID (SCALAR with specifiedByURL), Role (ENUM), Node (INTERFACE), User/DeletedUser (OBJECT implementing Node), UserResult (UNION), UserIdentifierInput (INPUT_OBJECT with isOneOf: true), etc.
+     - Assert ID scalar (built-in), fields on all objects (id, uuid, username, email, role, status, etc.).
    - Test specific __type for:
-     - ID scalar: specifiedByURL present.
-     - ReviewInput: isOneOf = true.
-     - Character interface: possibleTypes include Droid/Human.
-     - Unions (SearchResult): possibleTypes.
+     - UUID scalar: specifiedByURL present.
+     - UserIdentifierInput: isOneOf = true.
+     - Node interface: possibleTypes include User/DeletedUser.
+     - Unions (UserResult): possibleTypes.
 
 3. **Query Tests** (all queries/fields):
-   - hero(episode): Assert returns Character with id/name/appearsIn/... on Droid/Human fragment.
-   - character(id): Assert structure.
-   - droid(id): Assert Droid fields (primaryFunction).
-   - human(id): Assert Human fields (height with arg, mass, starships).
-   - starship(id): Assert Starship fields (length with unit arg).
-   - reviews(episode): Assert list of Review (stars, commentary).
-   - search(text): Assert union SearchResult (Human/Droid/Starship).
-   - Use fragments, variables, aliases, directives (@skip/@include) on fields.
-   - Test enum args (episode: NEWHOPE).
-   - Test list fields (friends, appearsIn, starships).
-   - Test non-null (id!).
+   - me: Assert User with id/uuid/username/email/role/status.
+   - user(by: {id: "test"}): Assert UserResult (User or DeletedUser).
+   - allUsers: Assert list of User with all fields.
+   - Use fragments on Node/UserResult, variables, aliases, directives (@skip/@include) on fields.
+   - Test enum args (role: ADMIN).
+   - Test list fields (allUsers).
+   - Test non-null (id, uuid, username).
 
 4. **Mutation Tests** (fire all, including oneOf):
-   - createReview(episode, review: {stars: 5}): Assert Review returned (tests @oneOf).
-   - rateFilm(episode, rating): Assert Film.
-   - updateHumanName(id, name): Assert Human updated.
-   - deleteStarship(id): Assert ID returned.
-   - Test oneOf invalid: review with both stars/commentary → error.
-   - Test oneOf valid edge (only commentary).
+   - createUser(input: {username: "test", email: "test@example.com"}): Assert User returned.
+   - updateUserRole(id, newRole: ADMIN): Assert User.
+   - Test oneOf in UserIdentifierInput for user query/mutation.
 
-5. **Edge/Feature Tests**:
-   - Custom scalar ID in args/returns.
-   - Interface resolution (fragment on Character).
-   - Union resolution (SearchResult).
-   - Enum serialization (Episode in output).
-   - Input with oneOf + scalars.
-   - Error cases (invalid enum, missing non-null, bad oneOf).
-   - Pagination (friendsConnection with args).
+5. **@oneOf Validation Tests**:
+   - Case 1: Success (Exactly one field: id or email in UserIdentifierInput).
+   - Case 2: Failure (Two fields provided).
+   - Case 3: Failure (Zero fields provided) → error.
+
+6. **@specifiedBy Verification**:
+   - Introspection for UUID scalar specifiedByURL.
+
+7. **Edge/Feature Tests**:
+   - Custom scalar UUID in fields/args.
+   - Interface resolution (fragment on Node).
+   - Union resolution (UserResult).
+   - Enum serialization (Role in output).
+   - Input with oneOf + scalars/enums.
+   - Error cases (invalid enum, missing non-null, bad oneOf, non-existent field).
    - Full query with all fields/variables/directives.
 
-6. **Coverage**:
-   - All Jaal: scalars/custom, queries/mutations, unions/interfaces, oneOf/@specifiedBy.
+8. **Coverage**:
+   - All Jaal: scalars/custom/@specifiedBy, queries/mutations, unions/interfaces, oneOf, enums.
    - Assert no panics, correct JSON, spec compliance.
    - Run with -v, check 100% coverage for server.
 
