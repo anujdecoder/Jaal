@@ -292,10 +292,17 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
+				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
+				// zero value was causing all fields to appear deprecated in playground
+				// introspection). DeprecationReason empty. Matches enumValues below.
+				// Description zero (no support in graphql.Field).
 				fields = append(fields, field{
-					Name: name,
-					Type: Type{Inner: f.Type},
-					Args: args,
+					Name:              name,
+					Description:       "",
+					Type:              Type{Inner: f.Type},
+					Args:              args,
+					IsDeprecated:      false,
+					DeprecationReason: "",
 				})
 			}
 		case *graphql.Interface:
@@ -309,10 +316,17 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
+				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
+				// zero value was causing all fields to appear deprecated in playground
+				// introspection). DeprecationReason empty. Matches enumValues below.
+				// Description zero (no support in graphql.Field).
 				fields = append(fields, field{
-					Name: name,
-					Type: Type{Inner: f.Type},
-					Args: args,
+					Name:              name,
+					Description:       "",
+					Type:              Type{Inner: f.Type},
+					Args:              args,
+					IsDeprecated:      false,
+					DeprecationReason: "",
 				})
 			}
 		}
