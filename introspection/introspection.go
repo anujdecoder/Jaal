@@ -69,7 +69,11 @@ type EnumValue struct {
 	Name              string
 	Description       string
 	IsDeprecated      bool
-	DeprecationReason string
+	// DeprecationReason as *string with omitempty to omit from introspection JSON
+	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
+	// playground/GraphiQL when no deprecation set). Matches InputValue.DefaultValue
+	// pattern.
+	DeprecationReason *string
 }
 
 func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
@@ -83,7 +87,8 @@ func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in EnumValue) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in EnumValue) string {
+	// Resolver returns *string (nil when no reason) for json omitempty tag.
+	obj.FieldFunc("deprecationReason", func(in EnumValue) *string {
 		return in.DeprecationReason
 	})
 }
@@ -294,15 +299,16 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 
 				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
 				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason empty. Matches enumValues below.
-				// Description zero (no support in graphql.Field).
+				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
+				// per user query; matches enumValues). Description zero (no support in
+				// graphql.Field).
 				fields = append(fields, field{
 					Name:              name,
 					Description:       "",
 					Type:              Type{Inner: f.Type},
 					Args:              args,
 					IsDeprecated:      false,
-					DeprecationReason: "",
+					DeprecationReason: nil,
 				})
 			}
 		case *graphql.Interface:
@@ -318,15 +324,16 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 
 				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
 				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason empty. Matches enumValues below.
-				// Description zero (no support in graphql.Field).
+				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
+				// per user query; matches enumValues). Description zero (no support in
+				// graphql.Field).
 				fields = append(fields, field{
 					Name:              name,
 					Description:       "",
 					Type:              Type{Inner: f.Type},
 					Args:              args,
 					IsDeprecated:      false,
-					DeprecationReason: "",
+					DeprecationReason: nil,
 				})
 			}
 		}
@@ -355,8 +362,10 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			var enumVals []EnumValue
 			for k, v := range t.ReverseMap {
 				val := fmt.Sprintf("%v", k)
+				// DeprecationReason: nil (omitted via omitempty; ensures not marked
+				// deprecated in playground).
 				enumVals = append(enumVals,
-					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: ""})
+					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: nil})
 			}
 			sort.Slice(enumVals, func(i, j int) bool { return enumVals[i].Name < enumVals[j].Name })
 			return enumVals
@@ -371,7 +380,10 @@ type field struct {
 	Args              []InputValue
 	Type              Type
 	IsDeprecated      bool
-	DeprecationReason string
+	// DeprecationReason as *string with omitempty to omit from introspection JSON
+	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
+	// playground/GraphiQL when no deprecation set; fixes reported issue).
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerField(schema *schemabuilder.Schema) {
@@ -391,7 +403,8 @@ func (s *introspection) registerField(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in field) bool {
 		return in.IsDeprecated
 	})
-	obj.FieldFunc("deprecationReason", func(in field) string {
+	// Resolver returns *string (nil when no reason) for json omitempty tag.
+	obj.FieldFunc("deprecationReason", func(in field) *string {
 		return in.DeprecationReason
 	})
 }
