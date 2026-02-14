@@ -3,7 +3,8 @@ package introspection
 // Copied/extended from https://github.com/graphql/graphiql/blob/master/src/utility/introspectionQueries.js
 // Updated for post-June 2018 spec: added specifiedByURL to FullType fragment
 // (for @specifiedBy on SCALAR; ensures ComputeSchemaJSON/introspection tests include it).
-const introspectionQuery = `
+// Exported as IntrospectionQuery for use in example/main_test.go (specifiedBy verification).
+const IntrospectionQuery = `
 query IntrospectionQuery {
 	__schema {
 		queryType { name }
