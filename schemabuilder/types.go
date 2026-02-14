@@ -82,6 +82,11 @@ type Union struct{}
 
 var unionType = reflect.TypeOf(Union{})
 
+// scalarSpecifiedByURLs maps scalar reflect.Type to its optional @specifiedBy URL
+// (from RegisterScalar; per Oct 2021+ spec for __Type.specifiedByURL).
+// Empty if not set (built-ins/customs without URL). Follows scalar map pattern in build.go.
+var scalarSpecifiedByURLs = map[reflect.Type]string{}
+
 // FieldFunc exposes a field on an object. The function f can take a number of
 // optional arguments:
 // func([ctx context.Context], [o *Type], [args struct {}]) ([Result], [error])
@@ -148,7 +153,10 @@ func (io *InputObject) FieldFunc(name string, function interface{}) {
 // UnmarshalFunc is used to unmarshal scalar value from JSON
 type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 
-// RegisterScalar is used to register custom scalars.
+// RegisterScalar is used to register custom scalars. The optional specifiedByURL
+// param (last arg) sets the @specifiedBy(url: String!) per post-2018 spec for
+// documentation in introspection (__Type.specifiedByURL). If omitted, defaults
+// to "" (null in output; for built-ins/customs without external spec).
 //
 // For example, to register a custom ID type,
 // type ID struct {
@@ -160,7 +168,7 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 //  return strconv.AppendQuote(nil, string(id.Value)), nil
 // }
 //
-// Register unmarshal func
+// Register unmarshal func (with optional URL)
 // func init() {
 //	typ := reflect.TypeOf((*ID)(nil)).Elem()
 //	if err := schemabuilder.RegisterScalar(typ, "ID", func(value interface{}, d reflect.Value) error {
@@ -171,11 +179,11 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 //
 //		d.Field(0).SetString(v)
 //		return nil
-//	}); err != nil {
+//	}, "https://..."); err != nil {
 //		panic(err)
 //	}
 //}
-func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc) error {
+func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, specifiedByURL ...string) error {
 	if typ.Kind() == reflect.Ptr {
 		return errors.New("type should not be of pointer type")
 	}
@@ -217,7 +225,15 @@ func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc) error {
 		}
 	}
 
+	// Store scalar name and (optional) @specifiedBy URL. Variadic ensures BC with pre-2018 calls.
+	// URL defaults to "" if omitted (null in introspection for built-ins).
 	scalars[typ] = name
+	if len(specifiedByURL) > 1 {
+		return errors.New("at most one specifiedByURL allowed")
+	}
+	if len(specifiedByURL) == 1 {
+		scalarSpecifiedByURLs[typ] = specifiedByURL[0]
+	}
 	scalarArgParsers[typ] = &argParser{
 		FromJSON: uf,
 	}
@@ -244,6 +260,17 @@ func isScalarType(t reflect.Type) bool {
 // typesIdenticalOrScalarAliases checks whether a & b are same scalar
 func typesIdenticalOrScalarAliases(a, b reflect.Type) bool {
 	return a == b || (a.Kind() == b.Kind() && (a.Kind() != reflect.Struct) && (a.Kind() != reflect.Map) && isScalarType(a))
+}
+
+// getScalarSpecifiedByURL returns the optional @specifiedBy URL for the scalar type
+// (registered via RegisterScalar's variadic arg; post-2018 spec). Returns "" if unset.
+// Used in build.go to attach to graphql.Scalar. Follows getScalar pattern (in build.go).
+// Handles direct types (aliases routed via getScalar's typesIdenticalOrScalarAliases upstream).
+func getScalarSpecifiedByURL(typ reflect.Type) string {
+	if url, ok := scalarSpecifiedByURLs[typ]; ok {
+		return url
+	}
+	return ""
 }
 
 //Timestamp handles the time

@@ -112,10 +112,12 @@ func wrapWithZeroValue(inner *argParser, fieldArgTyp graphql.Type) (*argParser, 
 }
 
 // getScalarArgParser creates an arg parser for a scalar type.
+// Returns GraphQL type as Scalar with SpecifiedByURL (for @specifiedBy spec
+// compliance in introspection; e.g., custom DateTime URL). Arg parsing unchanged.
 func getScalarArgParser(typ reflect.Type) (*argParser, graphql.Type, bool) {
 	for match, argParser := range scalarArgParsers {
 		if typesIdenticalOrScalarAliases(match, typ) {
-			name, ok := getScalar(typ)
+			name, specifiedByURL, ok := getScalar(typ)
 			if !ok {
 				panic(typ)
 			}
@@ -129,7 +131,7 @@ func getScalarArgParser(typ reflect.Type) (*argParser, graphql.Type, bool) {
 				argParser = &newParser
 			}
 
-			return argParser, &graphql.Scalar{Type: name}, true
+			return argParser, &graphql.Scalar{Type: name, SpecifiedByURL: specifiedByURL}, true
 		}
 	}
 	return nil, nil, false

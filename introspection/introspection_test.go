@@ -255,6 +255,10 @@ func TestIntrospectionForInterface(t *testing.T) {
 						map[string]interface{}{
 							"name": "skip",
 						},
+						// @specifiedBy added for spec compliance
+						map[string]interface{}{
+							"name": "specifiedBy",
+						},
 					},
 				},
 			},
@@ -877,6 +881,31 @@ func TestIntrospectionForInterface(t *testing.T) {
 									"defaultValue": nil,
 									"type": map[string]interface{}{
 										"name":          "Boolean",
+										"kind":          "SCALAR",
+										"description":   "",
+										"fields":        []interface{}{},
+										"interfaces":    []interface{}{},
+										"possibleTypes": []interface{}{},
+										"enumValues":    []interface{}{},
+										"inputFields":   []interface{}{},
+									},
+								},
+							},
+						},
+						// expected @specifiedBy (new built-in for spec compliance; matches var in introspection.go)
+						map[string]interface{}{
+							"name":        "specifiedBy",
+							"description": "Exposes a URL that specifies the behaviour of this scalar.",
+							"locations": []interface{}{
+								"SCALAR",
+							},
+							"args": []interface{}{
+								map[string]interface{}{
+									"name":         "url",
+									"description":  "The URL that specifies the behaviour of this scalar.",
+									"defaultValue": nil,
+									"type": map[string]interface{}{
+										"name":          "String",
 										"kind":          "SCALAR",
 										"description":   "",
 										"fields":        []interface{}{},

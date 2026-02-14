@@ -18,6 +18,7 @@ import (
 
 func init() {
 	var typ = reflect.TypeOf(time.Time{})
+	// Register DateTime with @specifiedBy for spec compliance (as in main example).
 	_ = schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
 		if !ok {
@@ -32,7 +33,7 @@ func init() {
 		dest.Set(reflect.ValueOf(t))
 
 		return nil
-	})
+	}, "https://tools.ietf.org/html/rfc3339")
 
 }
 

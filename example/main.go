@@ -80,6 +80,9 @@ func NewServer() *Server {
 
 func init() {
 	typ := reflect.TypeOf(time.Time{})
+	// Register DateTime scalar with @specifiedBy URL for full spec compliance
+	// (Oct 2021+; exposed in introspection as __Type.specifiedByURL).
+	// URL links external spec (RFC3339); backward compat for other scalars.
 	schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
 		if !ok {
@@ -94,7 +97,7 @@ func init() {
 		dest.Set(reflect.ValueOf(t))
 
 		return nil
-	})
+	}, "https://tools.ietf.org/html/rfc3339")
 }
 
 // RegisterSchema orchestrates the registration of all schema components.

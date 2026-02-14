@@ -158,8 +158,11 @@ In the above example, we registered all the operations, inputs & payloads on the
 
 ## Custom Scalar Registration
 
+Jaal supports custom scalars via reflection. Post-June 2018 spec compliance adds optional `specifiedByURL` (4th arg) for `@specifiedBy(url: String!)` directive on SCALAR (exposed in introspection __Type.specifiedByURL; e.g., for DateTime RFC).
+
 ```Go
 typ := reflect.TypeOf(time.Time{})
+// Register with URL for spec-compliant @specifiedBy (informational; links external type spec).
 schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
     v, ok := value.(string)
     if !ok {
@@ -174,8 +177,11 @@ schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest refle
     dest.Set(reflect.ValueOf(t))
 
     return nil
-})
+}, "https://tools.ietf.org/html/rfc3339")
 ```
+
+(Backward-compatible: omit URL for pre-existing calls; defaults to null in introspection.)
+
 
 ## Interface Registration
 

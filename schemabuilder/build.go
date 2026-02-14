@@ -35,12 +35,14 @@ func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 		return &graphql.NonNull{Type: &graphql.Enum{Type: typeName, Values: values, ReverseMap: sb.enumMappings[nodeType].ReverseMap}}, nil
 	}
 
-	if typeName, ok := getScalar(nodeType); ok {
-		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName}}, nil
+	if typeName, specifiedByURL, ok := getScalar(nodeType); ok {
+		// Attach SpecifiedByURL to Scalar for spec compliance (informational;
+		// e.g., DateTime URL in introspection). Built-ins default "" (null).
+		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName, SpecifiedByURL: specifiedByURL}}, nil
 	}
 	if nodeType.Kind() == reflect.Ptr {
-		if typeName, ok := getScalar(nodeType.Elem()); ok {
-			return &graphql.Scalar{Type: typeName}, nil // XXX: prefix typ with "*"
+		if typeName, specifiedByURL, ok := getScalar(nodeType.Elem()); ok {
+			return &graphql.Scalar{Type: typeName, SpecifiedByURL: specifiedByURL}, nil // XXX: prefix typ with "*"
 		}
 	}
 
@@ -90,14 +92,18 @@ func (sb *schemaBuilder) getEnum(typ reflect.Type) (string, []string, bool) {
 }
 
 // getScalar grabs the appropriate scalar graphql field type name for the passed
-// in variable reflect type.
-func getScalar(typ reflect.Type) (string, bool) {
+// in variable reflect type. Returns name, optional specifiedByURL (post-2018
+// @specifiedBy support for introspection), and ok. Follows scalar aliases via
+// typesIdenticalOrScalarAliases; URL from RegisterScalar if set (else "").
+func getScalar(typ reflect.Type) (string, string, bool) {
 	for match, name := range scalars {
 		if typesIdenticalOrScalarAliases(match, typ) {
-			return name, true
+			// Fetch URL ("" for built-ins like String; custom DateTime if registered).
+			url := getScalarSpecifiedByURL(match) // use match for exact registered typ
+			return name, url, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 var scalars = map[reflect.Type]string{

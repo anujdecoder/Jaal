@@ -17,9 +17,14 @@ type Type interface {
 
 // Scalar is a leaf value.  A custom "Unwrapper" can be attached to the scalar
 // so it can have a custom unwrapping (if nil we will use the default unwrapper).
+// Per post-2018 spec, SpecifiedByURL holds the URL from @specifiedBy directive
+// (informational only for custom scalars; nil/empty for built-ins).
 type Scalar struct {
-	Type      string
-	Unwrapper func(interface{}) (interface{}, error)
+	Type          string
+	Unwrapper     func(interface{}) (interface{}, error)
+	// SpecifiedByURL is the URL specifying scalar behaviour (from @specifiedBy(url: String!)).
+	// Matches spec for __Type.specifiedByURL; empty string treated as null in introspection.
+	SpecifiedByURL string
 }
 
 func (s *Scalar) isType() {}
@@ -122,6 +127,7 @@ func (i *Interface) String() string {
 }
 
 // Verify *Scalar, *Object, *List, *InputObject, and *NonNull implement Type
+// (Scalar now includes spec-compliant SpecifiedByURL field for @specifiedBy).
 var _ Type = &Scalar{}
 var _ Type = &Object{}
 var _ Type = &List{}

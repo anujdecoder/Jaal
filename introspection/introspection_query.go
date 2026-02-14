@@ -1,6 +1,8 @@
 package introspection
 
-// Copied from https://github.com/graphql/graphiql/blob/master/src/utility/introspectionQueries.js
+// Copied/extended from https://github.com/graphql/graphiql/blob/master/src/utility/introspectionQueries.js
+// Updated for post-June 2018 spec: added specifiedByURL to FullType fragment
+// (for @specifiedBy on SCALAR; ensures ComputeSchemaJSON/introspection tests include it).
 const introspectionQuery = `
 query IntrospectionQuery {
 	__schema {
@@ -51,6 +53,8 @@ fragment FullType on __Type {
 	possibleTypes {
 		...TypeRef
 	}
+	# specifiedByURL for SCALAR types (e.g., custom DateTime with URL).
+	specifiedByURL
 }
 fragment InputValue on __InputValue {
 	name

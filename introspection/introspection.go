@@ -19,6 +19,9 @@ type introspection struct {
 
 type DirectiveLocation string
 
+// DirectiveLocation enum per spec, including SCALAR for @specifiedBy (Oct 2021+).
+// Other locations (e.g., ARGUMENT_DEFINITION for deprecations) stubbed minimally.
+// Note: SCALAR_LOCATION avoids const name conflict with TypeKind.SCALAR in same pkg.
 const (
 	QUERY               DirectiveLocation = "QUERY"
 	MUTATION                              = "MUTATION"
@@ -27,6 +30,7 @@ const (
 	FRAGMENT_SPREAD                       = "FRAGMENT_SPREAD"
 	INLINE_FRAGMENT                       = "INLINE_FRAGMENT"
 	SUBSCRIPTION                          = "SUBSCRIPTION"
+	SCALAR_LOCATION     DirectiveLocation = "SCALAR" // for @specifiedBy
 )
 
 type TypeKind string
@@ -134,6 +138,7 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
 		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
+		"SCALAR":              DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy spec; SCALAR_LOCATION avoids const redecl
 	})
 }
 
@@ -372,6 +377,25 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		}
 		return nil
 	})
+
+	// specifiedByURL returns the URL for SCALAR types set via @specifiedBy(url: String!)
+	// directive (Oct 2021+ spec). Returns *string (nil if unset -> null/omitted in JSON,
+	// matching DeprecationReason/InputValue patterns to prevent UI/playground issues for
+	// built-ins like String). Only applies to SCALAR kind; nil otherwise.
+	object.FieldFunc("specifiedByURL", func(t Type) *string {
+		switch t := t.Inner.(type) {
+		case *graphql.Scalar:
+			if t.SpecifiedByURL != "" {
+				// Return ptr for JSON; non-empty URL included.
+				return &t.SpecifiedByURL
+			}
+			// nil -> omitted/null per spec/intro query.
+			return nil
+		default:
+			// Non-scalars have no specifiedByURL (spec).
+			return nil
+		}
+	})
 }
 
 type field struct {
@@ -515,6 +539,25 @@ var skipDirective = Directive{
 	},
 }
 
+// specifiedByDirective defines the built-in @specifiedBy (post-2018 spec) for
+// SCALAR types. Matches includeDirective/skipDirective pattern for introspection
+// exposure in __Schema.directives. URL arg as Scalar (per existing built-ins;
+// spec's NonNull not strictly enforced here for compat).
+var specifiedByDirective = Directive{
+	Description: "Exposes a URL that specifies the behaviour of this scalar.",
+	Locations: []DirectiveLocation{
+		SCALAR_LOCATION, // only on scalars per spec
+	},
+	Name: "specifiedBy",
+	Args: []InputValue{
+		InputValue{
+			Name:        "url",
+			Type:        Type{Inner: &graphql.Scalar{Type: "String"}}, // built-in String; URL value
+			Description: "The URL that specifies the behaviour of this scalar.",
+		},
+	},
+}
+
 func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
@@ -531,7 +574,9 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			Directives:       []Directive{includeDirective, skipDirective},
+			// include @specifiedBy in directives list (spec-compliant; alongside skip/include).
+			// Custom scalars with URL will reflect in __Type.specifiedByURL.
+			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective},
 		}
 	})
 
