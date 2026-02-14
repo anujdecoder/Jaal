@@ -183,7 +183,7 @@ func RegisterQueries(sb *schemabuilder.Schema, s *Server) {
 	})
 	q.FieldFunc("user", func(ctx context.Context, args struct {
 		By *UserIdentifierInput
-	}) interface{} { // UserResult
+	}) *User { // UserResult
 		// Stub: return User.
 		return &User{IDVal: schemabuilder.ID{Value: "u1"}, UUIDVal: UUID(uuid.New().String()), Username: "test", RoleVal: Member}
 	})
