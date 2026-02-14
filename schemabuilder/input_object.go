@@ -82,9 +82,12 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 			return nil, nil, err
 		}
 
+		// Capture deprecation from tag (for INPUT_FIELD_DEFINITION spec support).
+		// Propagated to introspection; empty = non-dep (compat/stubs).
 		fields[fieldInfo.Name] = argField{
-			field:  field,
-			parser: parser,
+			field:             field,
+			parser:            parser,
+			DeprecationReason: fieldInfo.DeprecationReason,
 		}
 		argType.InputFields[fieldInfo.Name] = fieldArgTyp
 	}

@@ -259,6 +259,10 @@ func TestIntrospectionForInterface(t *testing.T) {
 						map[string]interface{}{
 							"name": "specifiedBy",
 						},
+						// @deprecated (for input values) added for spec compliance
+						map[string]interface{}{
+							"name": "deprecated",
+						},
 					},
 				},
 			},
@@ -904,6 +908,34 @@ func TestIntrospectionForInterface(t *testing.T) {
 									"name":         "url",
 									"description":  "The URL that specifies the behaviour of this scalar.",
 									"defaultValue": nil,
+									"type": map[string]interface{}{
+										"name":          "String",
+										"kind":          "SCALAR",
+										"description":   "",
+										"fields":        []interface{}{},
+										"interfaces":    []interface{}{},
+										"possibleTypes": []interface{}{},
+										"enumValues":    []interface{}{},
+										"inputFields":   []interface{}{},
+									},
+								},
+							},
+						},
+						// expected @deprecated for input values deprecation (spec compliance; matches var).
+						// defaultValue "No longer supported"; InputValue dep fields in args.
+						map[string]interface{}{
+							"name":        "deprecated",
+							"description": "Marks an element of a GraphQL schema as no longer supported.",
+							"locations": []interface{}{
+								"FIELD",
+								"ARGUMENT_DEFINITION",
+								"INPUT_FIELD_DEFINITION",
+							},
+							"args": []interface{}{
+								map[string]interface{}{
+									"name":         "reason",
+									"description":  "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
+									"defaultValue": "No longer supported",
 									"type": map[string]interface{}{
 										"name":          "String",
 										"kind":          "SCALAR",

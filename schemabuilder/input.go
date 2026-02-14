@@ -15,9 +15,13 @@ import (
 // argField is a representation of an input parameter field for a function.  It
 // must be a field on a struct and will have an associated "argParser" for
 // reading an input JSON and filling the struct field.
+// Per spec, DeprecationReason supports @deprecated on input fields/args
+// (INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION; parsed from tags in reflect.go).
 type argField struct {
-	field  reflect.StructField
-	parser *argParser
+	field             reflect.StructField
+	parser            *argParser
+	// DeprecationReason if set for deprecation (empty = non-deprecated; *string in intro).
+	DeprecationReason string
 }
 
 // argParser is a struct that holds information for how to deserialize a JSON

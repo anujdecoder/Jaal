@@ -61,6 +61,11 @@ fragment InputValue on __InputValue {
 	description
 	type { ...TypeRef }
 	defaultValue
+	# isDeprecated/deprecationReason for input values deprecation support
+	# (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec; matches fields and
+	# updated InputValue struct).
+	isDeprecated
+	deprecationReason
 }
 fragment TypeRef on __Type {
 	kind

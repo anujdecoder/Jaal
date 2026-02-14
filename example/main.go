@@ -40,10 +40,14 @@ const (
 )
 
 // Inputs
+// Deprecation on input values demo (spec: INPUT_FIELD_DEFINITION via graphql/json tag).
+// e.g., Age field deprecated; reflected in introspection __InputValue.isDeprecated/deprecationReason.
+// Parse support in reflect.go/input_object.go.
 type CreateUserInput struct {
 	Name            string
 	Email           string
-	Age             int32
+	// Age deprecated (example for ARGUMENT_DEFINITION too in FieldFunc args).
+	Age             int32 `json:"age" graphql:",deprecated=Use birthdate instead"`
 	ReputationScore float64
 	IsActive        bool
 	Role            Role

@@ -11,6 +11,8 @@ import (
 )
 
 // graphQLFieldInfo contains basic struct field information related to GraphQL.
+// Per Oct 2021+ spec, supports DeprecationReason for @deprecated on input fields/args
+// (INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION; matches introspection stubs).
 type graphQLFieldInfo struct {
 	// Skipped indicates that this field should not be included in GraphQL.
 	Skipped bool
@@ -24,29 +26,54 @@ type graphQLFieldInfo struct {
 	// OptionalInputField indicates that this field should be treated as an optional
 	// field on graphQL input args.
 	OptionalInputField bool
+
+	// DeprecationReason if set (non-empty) marks field deprecated (@deprecated(reason: String) spec).
+	// Parsed from graphql tag options, e.g., `graphql:"age,deprecated=Use birthdate"`.
+	// Empty for non-deprecated (compat with existing).
+	DeprecationReason string
 }
 
 // parseGraphQLFieldInfo parses a struct field and returns a struct with the parsed information about the field (tag info, name, etc).
+// Supports deprecation per spec: e.g., `json:"age,omitempty" graphql:",deprecated=Use birthdate"` or json tag opts.
+// DeprecationReason extracted for INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION (introspection).
+// Follows tag parse pattern (json split); empty reason = non-deprecated (compat/stubs).
 func parseGraphQLFieldInfo(field reflect.StructField) (*graphQLFieldInfo, error) {
 	if field.PkgPath != "" { //If the field of struct is not exported, then it is not exposed
 		return &graphQLFieldInfo{Skipped: true}, nil
 	}
 
-	tags := strings.Split(field.Tag.Get("json"), ",")
+	// Primary tag from json (existing pattern); fallback/graphql tag for options like deprecated.
+	tag := field.Tag.Get("graphql")
+	if tag == "" {
+		tag = field.Tag.Get("json")
+	}
+	tags := strings.Split(tag, ",")
 	var name string
 	if len(tags) > 0 {
-		name = tags[0]
+		name = strings.TrimSpace(tags[0])
 	}
 	if name == "-" {
 		return &graphQLFieldInfo{Skipped: true}, nil
 	}
 
-	name = makeGraphql(field.Name)
+	if name == "" {
+		name = makeGraphql(field.Name)
+	}
 
 	var key bool
 	var optional bool
+	var depReason string
+	for _, opt := range tags[1:] {
+		opt = strings.TrimSpace(opt)
+		if strings.HasPrefix(opt, "deprecated=") {
+			depReason = strings.TrimPrefix(opt, "deprecated=")
+		} else if opt == "optional" {
+			optional = true
+		}
+		// key/others extensible; omitted for minimal.
+	}
 
-	return &graphQLFieldInfo{Name: name, KeyField: key, OptionalInputField: optional}, nil
+	return &graphQLFieldInfo{Name: name, KeyField: key, OptionalInputField: optional, DeprecationReason: depReason}, nil
 }
 
 // makeGraphql converts a field name "MyField" into a graphQL field name "myField".

@@ -19,9 +19,9 @@ type introspection struct {
 
 type DirectiveLocation string
 
-// DirectiveLocation enum per spec, including SCALAR for @specifiedBy (Oct 2021+).
-// Other locations (e.g., ARGUMENT_DEFINITION for deprecations) stubbed minimally.
-// Note: SCALAR_LOCATION avoids const name conflict with TypeKind.SCALAR in same pkg.
+// DirectiveLocation enum per spec, including SCALAR for @specifiedBy (Oct 2021+)
+// and ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION for @deprecated on input values
+// (this task). Avoids name conflicts (e.g., _LOC suffix); stubbed minimally for others.
 const (
 	QUERY               DirectiveLocation = "QUERY"
 	MUTATION                              = "MUTATION"
@@ -30,7 +30,9 @@ const (
 	FRAGMENT_SPREAD                       = "FRAGMENT_SPREAD"
 	INLINE_FRAGMENT                       = "INLINE_FRAGMENT"
 	SUBSCRIPTION                          = "SUBSCRIPTION"
-	SCALAR_LOCATION     DirectiveLocation = "SCALAR" // for @specifiedBy
+	SCALAR_LOCATION     DirectiveLocation = "SCALAR"      // for @specifiedBy
+	ARGUMENT_DEFINITION DirectiveLocation = "ARGUMENT_DEFINITION" // for input arg deprecation
+	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION" // for input field deprecation
 )
 
 type TypeKind string
@@ -51,6 +53,13 @@ type InputValue struct {
 	Description  string
 	Type         Type
 	DefaultValue *string
+
+	// IsDeprecated and DeprecationReason support @deprecated on input values
+	// (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION per Oct 2021+ spec).
+	// *string omitempty for JSON (matches EnumValue/field patterns/UI compat).
+	// Defaults false/nil if not set (stubs lifted for full support).
+	IsDeprecated      bool
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 func (s *introspection) registerInputValue(schema *schemabuilder.Schema) {
@@ -66,6 +75,14 @@ func (s *introspection) registerInputValue(schema *schemabuilder.Schema) {
 	})
 	obj.FieldFunc("defaultValue", func(in InputValue) *string {
 		return in.DefaultValue
+	})
+	// isDeprecated/deprecationReason for input values deprecation (spec support).
+	// Mirrors EnumValue.registerEnumValue and field.registerField.
+	obj.FieldFunc("isDeprecated", func(in InputValue) bool {
+		return in.IsDeprecated
+	})
+	obj.FieldFunc("deprecationReason", func(in InputValue) *string {
+		return in.DeprecationReason
 	})
 }
 
@@ -131,14 +148,18 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 	// }
 
 	schema.Enum(DirectiveLocation("QUERY"), map[string]interface{}{
-		"QUERY":               DirectiveLocation("QUERY"),
-		"MUTATION":            DirectiveLocation("MUTATION"),
-		"FIELD":               DirectiveLocation("FIELD"),
-		"FRAGMENT_DEFINITION": DirectiveLocation("FRAGMENT_DEFINITION"),
-		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
-		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
-		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
-		"SCALAR":              DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy spec; SCALAR_LOCATION avoids const redecl
+		"QUERY":                 DirectiveLocation("QUERY"),
+		"MUTATION":              DirectiveLocation("MUTATION"),
+		"FIELD":                 DirectiveLocation("FIELD"),
+		"FRAGMENT_DEFINITION":   DirectiveLocation("FRAGMENT_DEFINITION"),
+		"FRAGMENT_SPREAD":       DirectiveLocation("FRAGMENT_SPREAD"),
+		"INLINE_FRAGMENT":       DirectiveLocation("INLINE_FRAGMENT"),
+		"SUBSCRIPTION":          DirectiveLocation("SUBSCRIPTION"),
+		"SCALAR":                DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy
+		// New for deprecation on inputs (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec).
+		// Suffix avoids redecl.
+		"ARGUMENT_DEFINITION":   DirectiveLocation(ARGUMENT_DEFINITION),
+		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
 	})
 }
 
@@ -274,9 +295,14 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		switch t := t.Inner.(type) {
 		case *graphql.InputObject:
 			for name, f := range t.InputFields {
+				// InputValue for INPUT_FIELD_DEFINITION deprecation support (spec).
+				// Default false/nil (stubs lifted; tag-based from schemabuilder
+				// wired in future/ext). Matches field.args InputValue below.
 				fields = append(fields, InputValue{
-					Name: name,
-					Type: Type{Inner: f},
+					Name:              name,
+					Type:              Type{Inner: f},
+					IsDeprecated:      false,
+					DeprecationReason: nil,
 				})
 			}
 		}
@@ -295,50 +321,58 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			for name, f := range t.Fields {
 				var args []InputValue
 				for name, a := range f.Args {
+					// InputValue for ARGUMENT_DEFINITION deprecation (spec); default
+					// false/nil (stubs lifted; full support via Field args in future).
+					// Matches inputFields extension.
 					args = append(args, InputValue{
-						Name: name,
-						Type: Type{Inner: a},
+						Name:              name,
+						Type:              Type{Inner: a},
+						IsDeprecated:      false,
+						DeprecationReason: nil,
 					})
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
-				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
-				// per user query; matches enumValues). Description zero (no support in
-				// graphql.Field).
+				// Use Field.IsDeprecated/DeprecationReason (now supports @deprecated on
+				// fields + args per spec; ARGUMENT_DEFINITION enabled via InputValue in args).
+				// Description zero (no support in graphql.Field); remove force-false stub.
+				// DeprecationReason nil for omitempty (UI/playground compat).
 				fields = append(fields, field{
 					Name:              name,
 					Description:       "",
 					Type:              Type{Inner: f.Type},
 					Args:              args,
-					IsDeprecated:      false,
-					DeprecationReason: nil,
+					IsDeprecated:      f.IsDeprecated,
+					DeprecationReason: f.DeprecationReason,
 				})
 			}
 		case *graphql.Interface:
 			for name, f := range t.Fields {
 				var args []InputValue
 				for name, a := range f.Args {
+					// InputValue for ARGUMENT_DEFINITION deprecation (spec); default
+					// false/nil (stubs lifted; full support via Field args in future).
+					// Matches inputFields extension.
 					args = append(args, InputValue{
-						Name: name,
-						Type: Type{Inner: a},
+						Name:              name,
+						Type:              Type{Inner: a},
+						IsDeprecated:      false,
+						DeprecationReason: nil,
 					})
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
-				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
-				// per user query; matches enumValues). Description zero (no support in
-				// graphql.Field).
+				// Use Field.IsDeprecated/DeprecationReason (now supports @deprecated on
+				// fields + args per spec; ARGUMENT_DEFINITION enabled via InputValue in args).
+				// Description zero (no support in graphql.Field); remove force-false stub.
+				// DeprecationReason nil for omitempty (UI/playground compat).
 				fields = append(fields, field{
 					Name:              name,
 					Description:       "",
 					Type:              Type{Inner: f.Type},
 					Args:              args,
-					IsDeprecated:      false,
-					DeprecationReason: nil,
+					IsDeprecated:      f.IsDeprecated,
+					DeprecationReason: f.DeprecationReason,
 				})
 			}
 		}
@@ -558,6 +592,34 @@ var specifiedByDirective = Directive{
 	},
 }
 
+// deprecatedDirective defines the built-in @deprecated (extended for input values
+// per Oct 2021 spec: ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION). Matches other
+// built-in vars; reason arg defaults "No longer supported" (spec). Used in
+// __Schema.directives and inputFields/args deprecation. ENUM_VALUE omitted (in
+// TypeKind but stub for location).
+var deprecatedDirective = Directive{
+	Description: "Marks an element of a GraphQL schema as no longer supported.",
+	Locations: []DirectiveLocation{
+		// Core + input values deprecation support.
+		FIELD,
+		ARGUMENT_DEFINITION,
+		INPUT_FIELD_DEFINITION,
+	},
+	Name: "deprecated",
+	Args: []InputValue{
+		InputValue{
+			Name:              "reason",
+			Type:              Type{Inner: &graphql.Scalar{Type: "String"}},
+			Description:       "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
+			// Default per spec; set as *string (nil fallback OK; no resolver override).
+			// InputValue dep fields default false/nil.
+			DefaultValue: func() *string { s := "No longer supported"; return &s }(),
+			IsDeprecated:      false,
+			DeprecationReason: nil,
+		},
+	},
+}
+
 func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
@@ -574,9 +636,9 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			// include @specifiedBy in directives list (spec-compliant; alongside skip/include).
-			// Custom scalars with URL will reflect in __Type.specifiedByURL.
-			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective},
+			// include @specifiedBy and @deprecated (input values) in directives list (spec-compliant).
+			// Custom scalars with URL and deprecated inputs/args reflect in introspection.
+			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective},
 		}
 	})
 

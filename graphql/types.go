@@ -146,6 +146,9 @@ type BatchResolver func(ctx context.Context, sources []interface{}, args interfa
 // Field knows how to compute field values of an Object
 //
 // Fields are responsible for computing their value themselves.
+// Per Oct 2021+ spec, supports IsDeprecated/DeprecationReason for @deprecated on
+// FIELD_DEFINITION (incl. args); see ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION in
+// introspection. Matches field struct in introspection.go (omitempty for JSON/UI).
 type Field struct {
 	Resolve        Resolver
 	Type           Type
@@ -157,6 +160,12 @@ type Field struct {
 
 	LazyExecution bool
 	LazyResolver  func(ctx context.Context, fun interface{}) (interface{}, error)
+
+	// IsDeprecated marks field/arg deprecated (@deprecated directive).
+	// DeprecationReason *string (nil/empty omitted in JSON per spec/UI; prevents
+	// playground marking all as deprecated, matching existing stubs).
+	IsDeprecated      bool
+	DeprecationReason *string `json:"deprecationReason,omitempty"`
 }
 
 //Schema used to validate and resolve the queries
