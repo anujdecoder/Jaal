@@ -77,9 +77,13 @@ func (l *List) String() string {
 }
 
 //InputObject defines the object in argument of a query, mutation or subscription
+// Per deprecation on input values spec, FieldDeprecations map holds reasons for
+// INPUT_FIELD_DEFINITION (key=field name; empty/no entry = non-deprecated).
+// Matches Scalar.SpecifiedByURL metadata pattern; json- omitted (introspection only).
 type InputObject struct {
-	Name        string
-	InputFields map[string]Type
+	Name              string
+	InputFields       map[string]Type
+	FieldDeprecations map[string]string `json:"-"`
 }
 
 func (io *InputObject) isType() {}

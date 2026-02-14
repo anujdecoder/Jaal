@@ -296,13 +296,20 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		case *graphql.InputObject:
 			for name, f := range t.InputFields {
 				// InputValue for INPUT_FIELD_DEFINITION deprecation support (spec).
-				// Default false/nil (stubs lifted; tag-based from schemabuilder
-				// wired in future/ext). Matches field.args InputValue below.
+				// Pulls from FieldDeprecations map set in schemabuilder/input_object.go
+				// (tag parse e.g., age in CreateUserInput). Matches field.args InputValue
+				// and Scalar.SpecifiedByURL metadata pattern. Default false/nil for compat.
+				isDep := false
+				var depReason *string
+				if d, ok := t.FieldDeprecations[name]; ok && d != "" {
+					isDep = true
+					depReason = &d // ptr for omitempty/null in JSON
+				}
 				fields = append(fields, InputValue{
 					Name:              name,
 					Type:              Type{Inner: f},
-					IsDeprecated:      false,
-					DeprecationReason: nil,
+					IsDeprecated:      isDep,
+					DeprecationReason: depReason,
 				})
 			}
 		}

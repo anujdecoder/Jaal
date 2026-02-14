@@ -52,8 +52,11 @@ func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, gr
 func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObject, map[string]argField, error) {
 	fields := make(map[string]argField)
 	argType := &graphql.InputObject{
-		Name:        typ.Name(),
-		InputFields: make(map[string]graphql.Type),
+		Name:              typ.Name(),
+		InputFields:       make(map[string]graphql.Type),
+		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec; from tag parse).
+		// Empty string = non-deprecated (compat); populated below per field.
+		FieldDeprecations: make(map[string]string),
 	}
 
 	// Cache type information ahead of time to catch self-reference
@@ -83,13 +86,16 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 		}
 
 		// Capture deprecation from tag (for INPUT_FIELD_DEFINITION spec support).
-		// Propagated to introspection; empty = non-dep (compat/stubs).
+		// Propagated to introspection via FieldDeprecations; empty = non-dep (compat/stubs).
 		fields[fieldInfo.Name] = argField{
 			field:             field,
 			parser:            parser,
 			DeprecationReason: fieldInfo.DeprecationReason,
 		}
 		argType.InputFields[fieldInfo.Name] = fieldArgTyp
+		if fieldInfo.DeprecationReason != "" {
+			argType.FieldDeprecations[fieldInfo.Name] = fieldInfo.DeprecationReason
+		}
 	}
 
 	return argType, fields, nil
@@ -135,8 +141,30 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 	obj := sb.inputObjects[typ]
 	fields := make(map[string]argField)
 	argType := &graphql.InputObject{
-		Name:        obj.Name,
-		InputFields: make(map[string]graphql.Type),
+		Name:              obj.Name,
+		InputFields:       make(map[string]graphql.Type),
+		// FieldDeprecations default empty (for FieldFunc-based inputs; no tag parse).
+		// Matches generateArgParser for struct inputs.
+		FieldDeprecations: make(map[string]string),
+	}
+
+	// For registered InputObject from struct (e.g., CreateUserInput with graphql/json tags
+	// for deprecation on fields like age), parse fields to FieldDeprecations.
+	// Ensures INPUT_FIELD_DEFINITION deprecation when used as nested input in args struct
+	// (FieldFunc case; dummy field bypasses parseGraphQLFieldInfo). Matches reflect.go
+	// pattern + bug fix for example/main.go introspection.
+	if obj.Type != nil {
+		structTyp := reflect.TypeOf(obj.Type)
+		if structTyp.Kind() == reflect.Ptr {
+			structTyp = structTyp.Elem()
+		}
+		for i := 0; i < structTyp.NumField(); i++ {
+			f := structTyp.Field(i)
+			fieldInfo, _ := parseGraphQLFieldInfo(f) // skip err; handled in other paths
+			if !fieldInfo.Skipped && fieldInfo.DeprecationReason != "" {
+				argType.FieldDeprecations[fieldInfo.Name] = fieldInfo.DeprecationReason
+			}
+		}
 	}
 
 	for name, function := range obj.Fields {
