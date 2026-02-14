@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"go.appointy.com/jaal/graphql"
 	"go.appointy.com/jaal/jerrors"
@@ -18,15 +17,14 @@ type handlerOptions struct {
 }
 
 // HTTPHandler implements the handler required for executing the graphql queries and mutations.
-// For GET requests from browsers (detected via Accept header containing text/html), it
-// serves the GraphQL Playground UI, allowing interactive exploration of the schema and
-// execution of queries/mutations via the UI. This happens when the /graphql URL is
-// opened in a browser.
-// For all other cases (e.g., POST requests from clients, or non-browser GETs as in tests),
-// it executes the query as before. This ensures compatibility with existing clients,
-// examples, and tests while adding the requested playground functionality.
-// The playground uses CDN resources to avoid introducing new dependencies, following
-// the minimalistic pattern of the codebase.
+// For GET requests, it serves the GraphQL Playground UI, allowing interactive
+// exploration of the schema and execution of queries/mutations via the UI. This
+// happens when the /graphql URL is opened in a browser (or via any GET).
+// For POST requests from clients, it executes the query as before (preserving
+// compatibility with examples, README.md, and existing clients). Other methods
+// return an error.
+// The playground uses CDN resources to avoid introducing new dependencies,
+// following the minimalistic pattern of the codebase.
 func HTTPHandler(schema *graphql.Schema, opts ...HandlerOption) http.Handler {
 	h := &httpHandler{
 		handler: handler{
@@ -70,12 +68,12 @@ type httpResponse struct {
 	Errors []*jerrors.Error `json:"errors"`
 }
 
-// graphqlPlaygroundHTML is the HTML page for the GraphQL Playground. It is served for
-// browser GET requests to enable interactive schema exploration and query testing
-// in the browser. It relies on CDN-hosted assets (similar to how introspection uses
-// external query definitions) to keep the core library lightweight without additional
-// Go dependencies. The endpoint is configured to "/graphql" to match the handler path
-// used in examples and README.
+// graphqlPlaygroundHTML is the HTML page for the GraphQL Playground. It is served
+// for all GET requests to enable interactive schema exploration and query testing.
+// It relies on CDN-hosted assets (similar to how introspection uses external query
+// definitions) to keep the core library lightweight without additional Go
+// dependencies. The endpoint is configured to "/graphql" to match the handler path
+// used in examples and README.md.
 //
 // See: https://github.com/graphql/graphql-playground for more on the playground.
 const graphqlPlaygroundHTML = `<!DOCTYPE html>
@@ -107,23 +105,22 @@ const graphqlPlaygroundHTML = `<!DOCTYPE html>
 </html>`
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Serve the GraphQL Playground for browser requests (GET with HTML Accept header).
-	// This fulfills the requirement: when the URL (e.g., /graphql) is opened in a
-	// browser, the playground spins up. See isBrowserRequest, serveGraphQLPlayground,
-	// and HTTPHandler doc for details on the detection and HTML.
-	// For all other requests, including:
-	// - POST from clients (executes query/mutation, as in README/example)
-	// - GET from non-browsers (preserves "request must be a POST" error for tests/clients)
-	// the original execution flow runs. This pattern mirrors routing in ws.go's
-	// httpSubHandler (e.g., check method/headers before routing to qmHandler).
-	if r.Method == http.MethodGet && isBrowserRequest(r) {
+	// Serve the GraphQL Playground for all GET requests. This fulfills the
+	// requirement: when the URL (e.g., /graphql) is opened in a browser, the
+	// playground spins up. See serveGraphQLPlayground and HTTPHandler doc for
+	// details. This simplified check (GET only, no browser header detection)
+	// follows the user request and common GraphQL server patterns.
+	// Pattern mirrors routing in ws.go's httpSubHandler (e.g., method checks
+	// before delegating to query execution).
+	if r.Method == http.MethodGet {
 		serveGraphQLPlayground(w, r)
 		return
 	}
 
 	// writeResponse is a closure that formats execution results or errors as JSON,
 	// following the error handling style used throughout the codebase (e.g.,
-	// jerrors.ConvertError, httpResponse struct).
+	// jerrors.ConvertError, httpResponse struct). Non-POST requests (now only
+	// non-GET methods like PUT/DELETE hit this) return an error.
 	writeResponse := func(value interface{}, err error) {
 		response := httpResponse{}
 		if err != nil {
@@ -143,8 +140,8 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(responseJSON)
 	}
 
-	// Non-POST requests (except browser GETs handled above) return an error.
-	// This maintains compatibility with TestHTTPMustPost in http_test.go.
+	// Original non-POST error for compatibility with clients sending queries
+	// via POST (as in README.md, examples, client.go, and tests).
 	if r.Method != "POST" {
 		writeResponse(nil, errors.New("request must be a POST"))
 		return
@@ -205,31 +202,13 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// isBrowserRequest returns true if the request appears to originate from a browser,
-// based on the Accept header. Browsers typically include "text/html" or
-// "application/xhtml+xml" (see standard browser request headers).
-// This function is used to conditionally serve the GraphQL Playground for
-// interactive browser access to the /graphql URL, while preserving the original
-// behavior (returning a "must be a POST" error) for:
-// - Tests in http_test.go (which use http.NewRequest without Accept header)
-// - Programmatic clients (e.g., those in call.go, client.go, example tests)
-// - Tools like curl without explicit HTML accept
-// This matches the request in the user_query to support browser playground without
-// breaking changes, and follows the codebase's style of detailed comments for
-// new functionality (cf. middleware.go, ws.go).
-func isBrowserRequest(r *http.Request) bool {
-	accept := r.Header.Get("Accept")
-	return strings.Contains(accept, "text/html") ||
-		strings.Contains(accept, "application/xhtml+xml")
-}
-
 // serveGraphQLPlayground serves the static HTML for the GraphQL Playground.
 // It sets the appropriate Content-Type and writes the HTML defined above.
-// This is invoked only for browser GET requests, ensuring that:
-// - Opening the server URL (e.g., http://localhost:9000/graphql) in a browser
-//   spins up the playground (as requested).
-// - Client requests (POST for queries/mutations, or non-browser GETs) execute
-//   the query via the existing logic (see ServeHTTP).
+// This is invoked for GET requests, ensuring:
+// - Opening the server URL (e.g., http://localhost:9000/graphql) spins up the
+//   playground (as requested; simplified per latest user_query).
+// - Client requests (POST for queries/mutations) execute the query via the
+//   existing logic (see ServeHTTP).
 // The implementation uses the same error-ignoring write pattern (_, _) as
 // other response writes in this file and ws.go for consistency.
 func serveGraphQLPlayground(w http.ResponseWriter, r *http.Request) {

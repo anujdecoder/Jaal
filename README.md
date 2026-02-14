@@ -13,7 +13,7 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 * Union Support
 * In build include and skip directives
 * Protocol buffers API generation
-* Out-of-the-box GraphQL Playground: Open the `/graphql` endpoint URL in a browser to interactively explore the schema, run queries/mutations, and test resolvers (browser GET requests serve the UI; client requests execute queries as before)
+* Out-of-the-box GraphQL Playground: Open the `/graphql` endpoint URL (any GET request) to interactively explore the schema, run queries/mutations, and test resolvers (serves UI; client requests like POST execute queries as before)
 
 ## Getting Started
 
@@ -150,7 +150,7 @@ func main() {
 }
 ```
 
-Jaal's `HTTPHandler` now supports GraphQL Playground out of the box. Once the server is running, open `http://localhost:9000/graphql` (or your configured endpoint) in a browser to launch the interactive Playground UI for exploring the schema, testing queries/mutations (including those using resolvers for objects, interfaces, unions, etc.), and viewing introspection results. Client requests (e.g., POST) continue to execute queries unchanged.
+Jaal's `HTTPHandler` now supports GraphQL Playground out of the box (simplified: any GET request to `/graphql` launches the UI). Once the server is running, open `http://localhost:9000/graphql` (or your configured endpoint) in a browser to launch the interactive Playground UI for exploring the schema, testing queries/mutations (including those using resolvers for objects, interfaces, unions, etc.), and viewing introspection results. Client requests (e.g., POST) continue to execute queries unchanged.
 
 In the above example, we registered all the operations, inputs & payloads on the schema. We also registered the fields we wanted to expose on the schema. FIeld registration allows us to control the way in which a field is exposed. Here we exposed the field Id of Character as the graphQL scalar ID.
 

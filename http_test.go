@@ -28,7 +28,13 @@ func testHTTPRequest(req *http.Request) *httptest.ResponseRecorder {
 	return rr
 }
 
-func TestHTTPMustPost(t *testing.T) {
+// TestHTTPPlaygroundOnGet verifies that GET requests now serve the GraphQL
+// Playground HTML (simplified behavior per latest request: serve on any GET).
+// This replaces the prior TestHTTPMustPost (which tested non-POST error) to
+// ensure test coverage for the playground while maintaining passing tests and
+// no regressions for POST/query execution elsewhere. Checks status, content-type,
+// and key HTML snippet for the UI (avoids brittle full-string match).
+func TestHTTPPlaygroundOnGet(t *testing.T) {
 	req, err := http.NewRequest("GET", "/graphql", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +46,13 @@ func TestHTTPMustPost(t *testing.T) {
 		t.Errorf("expected 200, but received %d", rr.Code)
 	}
 
-	if diff := pretty.Compare(rr.Body.String(), `{"data":null,"errors":[{"message":"request must be a POST","extensions":{"code":"Unknown"},"paths":[]}]}`); diff != "" {
-		t.Errorf("expected response to match, but received %s", diff)
+	if ct := rr.HeaderMap.Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("expected text/html content-type, but received %s", ct)
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "<title>GraphQL Playground</title>") {
+		t.Errorf("expected playground HTML, but received: %s", body)
 	}
 }
 
