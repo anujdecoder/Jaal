@@ -2,13 +2,11 @@ package jaal
 
 import (
 	"context"
-	"embed"
+	_ "embed" // for GraphiQL assets inlined in HTML (no runtime FS/CDN)
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
-	"strings"
 
 	"go.appointy.com/jaal/graphql"
 	"go.appointy.com/jaal/jerrors"
@@ -72,30 +70,32 @@ type httpResponse struct {
 	Errors []*jerrors.Error `json:"errors"`
 }
 
-//go:embed playground
-// playgroundFiles embeds the GraphQL Playground static assets (index.html, CSS,
-// JS, favicon) directly into the Go binary at build time. This allows the server
-// to serve the complete, self-contained UI without any CDN or network dependencies,
-// ensuring offline/isolated operation.
-//
-// The embedded structure:
-// - playground/index.html (customized; see below for config)
-// - playground/static/css/index.css, /static/js/middleware.js, /favicon.png
-//
-// Assets sourced from graphql-playground-react (no Go deps added). See
-// PlaygroundHandler and serveGraphQLPlayground for serving logic.
-// Follows stdlib embedding (Go 1.16+; our go.mod supports) and codebase's
-// minimal pattern (cf. introspection files).
-var playgroundFiles embed.FS
+// Embedded GraphiQL assets (downloaded from CDN once during development; inlined
+// in HTML at runtime for no external loads/CDN/MIME/path issues). This matches
+// the provided example code for reliable browser rendering (single HTML response).
+//go:embed playground/react.production.min.js
+var reactJS []byte
+
+//go:embed playground/react-dom.production.min.js
+var reactDOMJS []byte
+
+//go:embed playground/graphiql.min.js
+var graphiqlJS []byte
+
+//go:embed playground/graphiql.min.css
+var graphiqlCSS []byte
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Serve embedded Playground on same /graphql route for GET requests (UI +
-	// assets; see serveEmbeddedPlayground). Fulfills: /graphql URL opened in
-	// browser spins up playground, no separate handler/redirect/mount/CDN,
-	// no example changes. Simplified GET check (no browser detection) per
-	// request. Mirrors ws.go routing (method/path before query execution).
-	if r.Method == http.MethodGet {
-		serveEmbeddedPlayground(w, r)
+	// Serve the GraphiQL playground UI on GET (and HEAD for completeness, e.g.
+	// curl -I) requests. This makes visiting the /graphql URL in a browser show
+	// the interactive playground with all assets inlined in a single HTML
+	// response (embedded; no CDN/files/MIME/path issues). Uses r.URL.Path as
+	// the GraphQL endpoint (self-referential). POST requests are handled as
+	// GraphQL queries below. Matches the provided example code.
+	// HEAD support follows common HTTP practices for UI endpoints.
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		// Title "Jaal GraphiQL Playground"; endpoint = current path (e.g., /graphql).
+		servePlayground(w, "Jaal GraphiQL Playground", r.URL.Path)
 		return
 	}
 
@@ -184,53 +184,80 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// getPlaygroundFS returns a sub-FS rooted at the embedded "playground/" dir for
-// serving assets. Internal helper (no export) to keep single-handler API.
-func getPlaygroundFS() (http.FileSystem, error) {
-	fsys, err := fs.Sub(playgroundFiles, "playground")
-	if err != nil {
-		return nil, fmt.Errorf("jaal: failed to embed playground assets: %w", err)
-	}
-	return http.FS(fsys), nil
-}
+// playgroundHTMLTemplate is the GraphiQL playground HTML shell (the %s placeholders
+// are for the title, CSS, 3 JS files, and endpoint; assets are inlined from embeds
+// at runtime to avoid any CDN/external loads or separate files/MIME/path issues).
+// This matches the provided example code exactly for reliable browser rendering
+// (single HTML response on GET to /graphql).
+const playgroundHTMLTemplate = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>%s</title>
+    <style>
+        body {
+            height: 100%%;
+            margin: 0;
+            overflow: hidden;
+        }
+        #graphiql {
+            height: 100vh;
+        }
+    </style>
+    <style>
+%s
+    </style>
+    <script>
+%s
+    </script>
+    <script>
+%s
+    </script>
+    <script>
+%s
+    </script>
+</head>
+<body>
+    <div id="graphiql">Loading...</div>
+    <script>
+      // The GraphQL fetcher posts to the graphqlEndpoint (self-referential to
+      // the current /graphql route for queries/mutations).
+      function graphQLFetcher(graphQLParams) {
+        return fetch(
+          '%s',
+          {
+            method: 'post',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(graphQLParams),
+            credentials: 'omit',
+          },
+        ).then(function (response) {
+          return response.json().catch(function () {
+            return response.text();
+          });
+        });
+      }
 
-// serveEmbeddedPlayground serves the GraphQL Playground on the *same /graphql
-// route* (no separate handler, no redirect, no example changes). 
-// - If GET /graphql (or /graphql/): serves index.html (embedded UI entrypoint).
-// - If GET /graphql/static/... or /graphql/favicon.png: serves asset from
-//   embedded FS (stripped internally; index.html references these paths).
-// - Enables full UI render offline/self-contained (no CDN/network).
-// - For POST: query execution (unchanged; see ServeHTTP).
-// Pattern follows conditional logic in ws.go/http.go (method/path checks),
-// using stdlib FileServer/FS for assets. HTML paths updated in index.html.
-func serveEmbeddedPlayground(w http.ResponseWriter, r *http.Request) {
-	// Root UI page.
-	if r.URL.Path == "/graphql" || r.URL.Path == "/graphql/" {
-		// Serve index.html directly from embed (sets type; no FS for simplicity).
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		indexBytes, err := fs.ReadFile(playgroundFiles, "playground/index.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		_, _ = w.Write(indexBytes)
-		return
-	}
+      ReactDOM.render(
+        React.createElement(GraphiQL, {
+          fetcher: graphQLFetcher,
+        }),
+        document.getElementById('graphiql'),
+      );
+    </script>
+</body>
+</html>`
 
-	// Assets (CSS/JS/favicon) under /graphql/... for same-route serving.
-	// Matches paths in index.html (e.g., /graphql/static/css/index.css).
-	if strings.HasPrefix(r.URL.Path, "/graphql/static/") || r.URL.Path == "/graphql/favicon.png" {
-		fsys, err := getPlaygroundFS()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Strip /graphql prefix internally to map to FS root (e.g., /graphql/static/css/...
-		// -> static/css/... in embed).
-		http.StripPrefix("/graphql", http.FileServer(fsys)).ServeHTTP(w, r)
-		return
-	}
-
-	// Non-UI GET: not found (keeps GraphQL endpoint clean).
-	http.NotFound(w, r)
+// servePlayground writes the GraphiQL HTML with all CSS/JS assets inlined from
+// embeds (no CDN, no separate files). Used by the automatic GET/HEAD handling
+// in HTTPHandler (self-contained on /graphql route). Casts []byte embeds to
+// string for fmt.Sprintf. This ensures no MIME/404/render errors.
+func servePlayground(w http.ResponseWriter, title, graphqlEndpoint string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Inline embedded assets directly into <style>/<script> tags (per example).
+	html := fmt.Sprintf(playgroundHTMLTemplate, title, string(graphiqlCSS), string(reactJS), string(reactDOMJS), string(graphiqlJS), graphqlEndpoint)
+	_, _ = w.Write([]byte(html))
 }

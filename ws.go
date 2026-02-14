@@ -102,8 +102,25 @@ type gqlPayload struct {
 	OpName    string                 `json:"operationName"`
 }
 
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade request
+// (for graphql-ws subs). Used to delegate non-upgrade GETs (e.g., playground
+// UI/assets on /graphql) to qmHandler, ensuring compatibility with
+// embedded playground in HTTPHandler (same route, no CDN).
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
 func (h *httpSubHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet { // If not a subscription request route to normal handler
+	// If not GET or not WebSocket upgrade, delegate to qmHandler (HTTPHandler).
+	// This ensures:
+	// - POST queries/mutations work.
+	// - GET for embedded playground UI/assets (/graphql, /graphql/static/..., /graphql/favicon.png)
+	//   works on same route (no CDN, no separate mount/redirect).
+	// - Only valid WS GETs (Upgrade: websocket, Connection: upgrade) proceed to subs.
+	// Maintains compat with jaal.HTTPHandler's playground (per recent changes)
+	// without example changes.
+	if r.Method != http.MethodGet || !isWebSocketUpgrade(r) {
 		h.qmHandler.ServeHTTP(w, r)
 		return
 	}

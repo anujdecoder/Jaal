@@ -29,10 +29,11 @@ func testHTTPRequest(req *http.Request) *httptest.ResponseRecorder {
 }
 
 // TestHTTPPlaygroundOnGet verifies that GET requests to /graphql serve the
-// embedded Playground (same route only: HTML entrypoint; no redirect/mount/
-// separate handler per request). Supports CDN-free impl while preserving test
-// suite and no regressions for POST/query execution. Checks status/type/HTML
-// snippet (avoids brittle full match).
+// GraphiQL Playground UI with all CSS/JS assets inlined in a single HTML
+// response (embedded via go:embed; no CDN/files/MIME/path/404 issues).
+// Matches the provided example code for reliable rendering. Checks status,
+// content-type, and key snippets (title, GraphiQL, endpoint) while preserving
+// test suite and no regressions for POST/query execution elsewhere.
 func TestHTTPPlaygroundOnGet(t *testing.T) {
 	req, err := http.NewRequest("GET", "/graphql", nil)
 	if err != nil {
@@ -50,11 +51,14 @@ func TestHTTPPlaygroundOnGet(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "<title>GraphQL Playground</title>") {
-		t.Errorf("expected playground HTML, got: %s", body)
+	if !strings.Contains(body, "<title>Jaal GraphiQL Playground</title>") {
+		t.Errorf("expected GraphiQL HTML title, got: %s", body)
 	}
-	if !strings.Contains(body, `endpoint: "/graphql"`) {
-		t.Errorf("expected /graphql endpoint config in HTML")
+	if !strings.Contains(body, "GraphiQL") {
+		t.Errorf("expected GraphiQL in HTML")
+	}
+	if !strings.Contains(body, `'/graphql'`) { // self-referential endpoint after sprintf
+		t.Errorf("expected /graphql endpoint in fetcher")
 	}
 }
 
@@ -126,31 +130,3 @@ func TestHTTPContentType(t *testing.T) {
 	}
 }
 
-// TestEmbeddedPlaygroundAssetsSameRoute verifies static assets (CSS/JS/favicon)
-// are served from embedded FS on the *same /graphql route* (e.g.,
-// /graphql/static/css/...). Ensures UI renders fully self-contained/offline
-// (no CDN/mount/redirect). Called internally by serveEmbeddedPlayground for
-// paths referenced in index.html. Follows test pattern (httptest; spot-checks
-// status/type/content). No change to example/main.go.
-func TestEmbeddedPlaygroundAssetsSameRoute(t *testing.T) {
-	// Test via handler (simulates same-route asset paths).
-	h := jaal.HTTPHandler(schemabuilder.NewSchema().MustBuild()) // minimal schema
-
-	// Spot-check CSS asset (GET /graphql/static/css/index.css)
-	rr := httptest.NewRecorder()
-	req, err := http.NewRequest("GET", "/graphql/static/css/index.css", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for CSS asset, got %d", rr.Code)
-	}
-	if ct := rr.HeaderMap.Get("Content-Type"); !strings.Contains(ct, "text/css") {
-		t.Errorf("expected text/css, got %s", ct)
-	}
-	if !strings.Contains(rr.Body.String(), "body") { // rough check for CSS content
-		t.Errorf("expected CSS content")
-	}
-}
