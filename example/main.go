@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"reflect"
@@ -16,9 +15,72 @@ import (
 	"go.appointy.com/jaal/schemabuilder"
 )
 
+// =============================================================================
+// 1. Domain Models
+// =============================================================================
+
+// User demonstrates the use of standard GraphQL scalars + ID + Time.
+type User struct {
+	ID              schemabuilder.ID `graphql:"id"`
+	Name            string           `graphql:"name"`
+	Email           string           `graphql:"email"`
+	Age             int32            `graphql:"age"`
+	ReputationScore float64          `graphql:"reputation"`
+	IsActive        bool             `graphql:"isActive"`
+	Role            Role             `graphql:"role"`
+	CreatedAt       time.Time        `graphql:"createdAt"`
+}
+
+type Role string
+
+const (
+	RoleAdmin  Role = "ADMIN"
+	RoleMember Role = "MEMBER"
+	RoleGuest  Role = "GUEST"
+)
+
+// Inputs
+type CreateUserInput struct {
+	Name            string
+	Email           string
+	Age             int32
+	ReputationScore float64
+	IsActive        bool
+	Role            Role
+}
+
+// =============================================================================
+// 2. Data Store (Mock)
+// =============================================================================
+
+type Server struct {
+	users []*User
+}
+
+func NewServer() *Server {
+	return &Server{
+		users: []*User{
+			{
+				ID:              schemabuilder.ID{Value: "u1"},
+				Name:            "John Doe",
+				Email:           "jdoe@example.com",
+				Age:             30,
+				ReputationScore: 9.5,
+				IsActive:        true,
+				Role:            RoleAdmin,
+				CreatedAt:       time.Now(),
+			},
+		},
+	}
+}
+
+// =============================================================================
+// 3. Schema Registration (Modular)
+// =============================================================================
+
 func init() {
-	var typ = reflect.TypeOf(time.Time{})
-	_ = schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
+	typ := reflect.TypeOf(time.Time{})
+	schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
 		if !ok {
 			return errors.New("invalid type expected string")
@@ -33,158 +95,135 @@ func init() {
 
 		return nil
 	})
-
 }
 
-type Server struct {
-	Characters []*Character
+// RegisterSchema orchestrates the registration of all schema components.
+func RegisterSchema(sb *schemabuilder.Schema, s *Server) {
+	RegisterEnums(sb)
+	RegisterObjects(sb)
+	RegisterInputs(sb)
+
+	RegisterQuery(sb, s)
+	RegisterMutation(sb, s)
+	RegisterSubscription(sb)
 }
 
-type Character struct {
-	Id          string
-	Name        string
-	Type        Type
-	DateOfBirth time.Time
-	Metadata    map[string]string
+func RegisterEnums(sb *schemabuilder.Schema) {
+	sb.Enum(RoleMember, map[string]interface{}{
+		"ADMIN":  RoleAdmin,
+		"MEMBER": RoleMember,
+		"GUEST":  RoleGuest,
+	})
 }
 
-type Type int32
+func RegisterObjects(sb *schemabuilder.Schema) {
+	user := sb.Object("User", User{})
 
-const (
-	WIZARD Type = iota
-	MUGGLE
-	GOBLIN
-	HOUSE_ELF
-)
-
-type CreateCharacterRequest struct {
-	Name        string
-	Type        Type
-	DateOfBirth time.Time
-	Metadata    map[string]string
+	// FieldFuncs allow you to map struct fields to GraphQL fields explicitly
+	user.FieldFunc("id", func(u *User) schemabuilder.ID { return u.ID })
+	user.FieldFunc("name", func(u *User) string { return u.Name })
+	user.FieldFunc("email", func(u *User) string { return u.Email })
+	user.FieldFunc("age", func(u *User) int32 { return u.Age })
+	user.FieldFunc("reputation", func(u *User) float64 { return u.ReputationScore })
+	user.FieldFunc("isActive", func(u *User) bool { return u.IsActive })
+	user.FieldFunc("role", func(u *User) Role { return u.Role })
+	user.FieldFunc("createdAt", func(u *User) time.Time { return u.CreatedAt })
 }
 
-func RegisterPayload(schema *schemabuilder.Schema) {
-	payload := schema.Object("Character", Character{})
-	payload.FieldFunc("id", func(ctx context.Context, in *Character) *schemabuilder.ID {
-		return &schemabuilder.ID{Value: in.Id}
-	})
-	payload.FieldFunc("name", func(ctx context.Context, in *Character) string {
-		return in.Name
-	})
-	payload.FieldFunc("type", func(ctx context.Context, in *Character) Type {
-		return in.Type
-	})
-	payload.FieldFunc("dateOfBirth", func(ctx context.Context, in *Character) time.Time {
-		return in.DateOfBirth
-	})
-	payload.FieldFunc("metadata", func(ctx context.Context, in *Character) (*schemabuilder.Map, error) {
-		data, err := json.Marshal(in.Metadata)
-		if err != nil {
-			return nil, err
+func RegisterInputs(sb *schemabuilder.Schema) {
+	input := sb.InputObject("CreateUserInput", CreateUserInput{})
+
+	input.FieldFunc("name", func(target *CreateUserInput, source string) { target.Name = source })
+	input.FieldFunc("email", func(target *CreateUserInput, source string) { target.Email = source })
+	input.FieldFunc("age", func(target *CreateUserInput, source int32) { target.Age = source })
+	input.FieldFunc("reputation", func(target *CreateUserInput, source float64) { target.ReputationScore = source })
+	input.FieldFunc("isActive", func(target *CreateUserInput, source bool) { target.IsActive = source })
+	input.FieldFunc("role", func(target *CreateUserInput, source Role) { target.Role = source })
+}
+
+func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
+	q := sb.Query()
+
+	q.FieldFunc("me", func(ctx context.Context) *User {
+		if len(s.users) > 0 {
+			return s.users[0]
 		}
-
-		return &schemabuilder.Map{Value: string(data)}, nil
-	})
-}
-
-func RegisterInput(schema *schemabuilder.Schema) {
-	input := schema.InputObject("CreateCharacterRequest", CreateCharacterRequest{})
-	input.FieldFunc("name", func(target *CreateCharacterRequest, source string) {
-		target.Name = source
-	})
-	input.FieldFunc("type", func(target *CreateCharacterRequest, source Type) {
-		target.Type = source
-	})
-	input.FieldFunc("dateOfBirth", func(target *CreateCharacterRequest, source time.Time) {
-		target.DateOfBirth = source
-	})
-	input.FieldFunc("metadata", func(target *CreateCharacterRequest, source schemabuilder.Map) error {
-		v := source.Value
-
-		decodedValue, err := base64.StdEncoding.DecodeString(v)
-		if err != nil {
-			return err
-		}
-
-		data := make(map[string]string)
-		if err := json.Unmarshal(decodedValue, &data); err != nil {
-			return err
-		}
-
-		target.Metadata = data
 		return nil
 	})
-}
 
-func RegisterEnum(schema *schemabuilder.Schema) {
-	schema.Enum(Type(0), map[string]interface{}{
-		"WIZARD":    Type(0),
-		"MUGGLE":    Type(1),
-		"GOBLIN":    Type(2),
-		"HOUSE_ELF": Type(3),
-	})
-}
-
-func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
-	schema.Query().FieldFunc("character", func(ctx context.Context, args struct {
-		Id *schemabuilder.ID
-	}) *Character {
-		for _, ch := range s.Characters {
-			if ch.Id == args.Id.Value {
-				return ch
+	q.FieldFunc("user", func(ctx context.Context, args struct {
+		ID schemabuilder.ID
+	}) (*User, error) {
+		for _, u := range s.users {
+			if u.ID.Value == args.ID.Value {
+				return u, nil
 			}
 		}
-
-		return nil
+		return nil, fmt.Errorf("user not found")
 	})
 
-	schema.Query().FieldFunc("characters", func(ctx context.Context, args struct{}) []*Character {
-		return s.Characters
-	})
-
-	schema.Mutation().FieldFunc("createCharacter", func(ctx context.Context, args struct {
-		Input *CreateCharacterRequest
-	}) *Character {
-		ch := &Character{
-			Id:          uuid.Must(uuid.NewUUID()).String(),
-			Name:        args.Input.Name,
-			Type:        args.Input.Type,
-			DateOfBirth: args.Input.DateOfBirth,
-			Metadata:    args.Input.Metadata,
-		}
-		s.Characters = append(s.Characters, ch)
-
-		return ch
+	q.FieldFunc("allUsers", func(ctx context.Context) []*User {
+		return s.users
 	})
 }
+
+func RegisterMutation(sb *schemabuilder.Schema, s *Server) {
+	m := sb.Mutation()
+
+	m.FieldFunc("createUser", func(ctx context.Context, args struct {
+		Input CreateUserInput
+	}) *User {
+		newUser := &User{
+			ID:              schemabuilder.ID{Value: uuid.New().String()},
+			Name:            args.Input.Name,
+			Email:           args.Input.Email,
+			Age:             args.Input.Age,
+			ReputationScore: args.Input.ReputationScore,
+			IsActive:        args.Input.IsActive,
+			Role:            args.Input.Role,
+			CreatedAt:       time.Now(),
+		}
+		s.users = append(s.users, newUser)
+		return newUser
+	})
+}
+
+// RegisterSubscription adds a functional subscription.
+func RegisterSubscription(sb *schemabuilder.Schema) {
+	s := sb.Subscription()
+
+	// The resolver must return a function that returns the channel.
+	s.FieldFunc("currentTime", func(ctx context.Context) func() time.Time {
+		return time.Now
+	})
+}
+
+// =============================================================================
+// 4. Main Execution
+// =============================================================================
 
 func main() {
 	sb := schemabuilder.NewSchema()
-	RegisterPayload(sb)
-	RegisterInput(sb)
-	RegisterEnum(sb)
+	server := NewServer()
 
-	s := &Server{
-		Characters: []*Character{{
-			Id:          "015f13a5-cf9b-49d7-b457-6113bcf8fd56",
-			Name:        "Harry Potter",
-			Type:        WIZARD,
-			DateOfBirth: time.Date(1980, time.July, 31, 0, 0, 0, 0, time.Local),
-		}},
-	}
+	RegisterSchema(sb, server)
 
-	s.RegisterOperations(sb)
 	schema, err := sb.Build()
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("Failed to build schema: %v", err)
 	}
 
 	introspection.AddIntrospectionToSchema(schema)
 
+	// Jaal HTTPHandler handles Queries and Mutations.
+	// Note: For Subscriptions to work in a real browser env, you usually need
+	// a WebSocket handler wrapper, but this is the standard Jaal HTTP entry point.
 	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	log.Println("Running")
-	if err := http.ListenAndServe(":9000", nil); err != nil {
-		panic(err)
+
+	log.Println("Server running on :8080")
+	log.Println("Playground: http://localhost:8080/graphql")
+
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatal(err)
 	}
 }
