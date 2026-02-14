@@ -2,9 +2,13 @@ package jaal
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
+	"strings"
 
 	"go.appointy.com/jaal/graphql"
 	"go.appointy.com/jaal/jerrors"
@@ -17,14 +21,14 @@ type handlerOptions struct {
 }
 
 // HTTPHandler implements the handler required for executing the graphql queries and mutations.
-// For GET requests, it serves the GraphQL Playground UI, allowing interactive
-// exploration of the schema and execution of queries/mutations via the UI. This
-// happens when the /graphql URL is opened in a browser (or via any GET).
-// For POST requests from clients, it executes the query as before (preserving
-// compatibility with examples, README.md, and existing clients). Other methods
-// return an error.
-// The playground uses CDN resources to avoid introducing new dependencies,
-// following the minimalistic pattern of the codebase.
+// For GET requests to /graphql, it serves the embedded GraphQL Playground UI
+// (index.html + assets like CSS/JS/favicon from FS; see serveEmbeddedPlayground).
+// This allows interactive exploration (no separate handler/mount/redirect/CDN;
+// same route only, no example changes). For POST requests from clients, it
+// executes the query as before (preserving compatibility with examples,
+// README.md, and existing clients). Other methods return an error.
+// The playground assets are embedded via go:embed (stdlib only), following the
+// minimalistic pattern of the codebase.
 func HTTPHandler(schema *graphql.Schema, opts ...HandlerOption) http.Handler {
 	h := &httpHandler{
 		handler: handler{
@@ -68,52 +72,30 @@ type httpResponse struct {
 	Errors []*jerrors.Error `json:"errors"`
 }
 
-// graphqlPlaygroundHTML is the HTML page for the GraphQL Playground. It is served
-// for all GET requests to enable interactive schema exploration and query testing.
-// It relies on CDN-hosted assets (similar to how introspection uses external query
-// definitions) to keep the core library lightweight without additional Go
-// dependencies. The endpoint is configured to "/graphql" to match the handler path
-// used in examples and README.md.
+//go:embed playground
+// playgroundFiles embeds the GraphQL Playground static assets (index.html, CSS,
+// JS, favicon) directly into the Go binary at build time. This allows the server
+// to serve the complete, self-contained UI without any CDN or network dependencies,
+// ensuring offline/isolated operation.
 //
-// See: https://github.com/graphql/graphql-playground for more on the playground.
-const graphqlPlaygroundHTML = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset=utf-8/>
-  <meta name="viewport" content="user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, minimal-ui">
-  <title>GraphQL Playground</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/graphql-playground-react/build/static/css/index.css" />
-  <link rel="shortcut icon" href="https://cdn.jsdelivr.net/npm/graphql-playground-react/build/favicon.png" />
-  <script src="https://cdn.jsdelivr.net/npm/graphql-playground-react/build/static/js/middleware.js"></script>
-</head>
-<body>
-  <div id="root"/>
-  <script type="text/javascript">
-    window.addEventListener('load', function (event) {
-      const root = document.getElementById('root');
-      root.classList.add('playgroundInBody')
-      GraphQLPlayground.init(root, {
-        // The endpoint is set to /graphql to match the standard handler registration
-        // in README.md and examples (e.g., http.Handle("/graphql", jaal.HTTPHandler(schema))).
-        // Queries/mutations executed from the playground UI will POST to this endpoint
-        // and be handled by the execution logic below.
-        endpoint: "/graphql",
-      })
-    })
-  </script>
-</body>
-</html>`
+// The embedded structure:
+// - playground/index.html (customized; see below for config)
+// - playground/static/css/index.css, /static/js/middleware.js, /favicon.png
+//
+// Assets sourced from graphql-playground-react (no Go deps added). See
+// PlaygroundHandler and serveGraphQLPlayground for serving logic.
+// Follows stdlib embedding (Go 1.16+; our go.mod supports) and codebase's
+// minimal pattern (cf. introspection files).
+var playgroundFiles embed.FS
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Serve the GraphQL Playground for all GET requests. This fulfills the
-	// requirement: when the URL (e.g., /graphql) is opened in a browser, the
-	// playground spins up. See serveGraphQLPlayground and HTTPHandler doc for
-	// details. This simplified check (GET only, no browser header detection)
-	// follows the user request and common GraphQL server patterns.
-	// Pattern mirrors routing in ws.go's httpSubHandler (e.g., method checks
-	// before delegating to query execution).
+	// Serve embedded Playground on same /graphql route for GET requests (UI +
+	// assets; see serveEmbeddedPlayground). Fulfills: /graphql URL opened in
+	// browser spins up playground, no separate handler/redirect/mount/CDN,
+	// no example changes. Simplified GET check (no browser detection) per
+	// request. Mirrors ws.go routing (method/path before query execution).
 	if r.Method == http.MethodGet {
-		serveGraphQLPlayground(w, r)
+		serveEmbeddedPlayground(w, r)
 		return
 	}
 
@@ -202,16 +184,53 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// serveGraphQLPlayground serves the static HTML for the GraphQL Playground.
-// It sets the appropriate Content-Type and writes the HTML defined above.
-// This is invoked for GET requests, ensuring:
-// - Opening the server URL (e.g., http://localhost:9000/graphql) spins up the
-//   playground (as requested; simplified per latest user_query).
-// - Client requests (POST for queries/mutations) execute the query via the
-//   existing logic (see ServeHTTP).
-// The implementation uses the same error-ignoring write pattern (_, _) as
-// other response writes in this file and ws.go for consistency.
-func serveGraphQLPlayground(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(graphqlPlaygroundHTML))
+// getPlaygroundFS returns a sub-FS rooted at the embedded "playground/" dir for
+// serving assets. Internal helper (no export) to keep single-handler API.
+func getPlaygroundFS() (http.FileSystem, error) {
+	fsys, err := fs.Sub(playgroundFiles, "playground")
+	if err != nil {
+		return nil, fmt.Errorf("jaal: failed to embed playground assets: %w", err)
+	}
+	return http.FS(fsys), nil
+}
+
+// serveEmbeddedPlayground serves the GraphQL Playground on the *same /graphql
+// route* (no separate handler, no redirect, no example changes). 
+// - If GET /graphql (or /graphql/): serves index.html (embedded UI entrypoint).
+// - If GET /graphql/static/... or /graphql/favicon.png: serves asset from
+//   embedded FS (stripped internally; index.html references these paths).
+// - Enables full UI render offline/self-contained (no CDN/network).
+// - For POST: query execution (unchanged; see ServeHTTP).
+// Pattern follows conditional logic in ws.go/http.go (method/path checks),
+// using stdlib FileServer/FS for assets. HTML paths updated in index.html.
+func serveEmbeddedPlayground(w http.ResponseWriter, r *http.Request) {
+	// Root UI page.
+	if r.URL.Path == "/graphql" || r.URL.Path == "/graphql/" {
+		// Serve index.html directly from embed (sets type; no FS for simplicity).
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		indexBytes, err := fs.ReadFile(playgroundFiles, "playground/index.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(indexBytes)
+		return
+	}
+
+	// Assets (CSS/JS/favicon) under /graphql/... for same-route serving.
+	// Matches paths in index.html (e.g., /graphql/static/css/index.css).
+	if strings.HasPrefix(r.URL.Path, "/graphql/static/") || r.URL.Path == "/graphql/favicon.png" {
+		fsys, err := getPlaygroundFS()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Strip /graphql prefix internally to map to FS root (e.g., /graphql/static/css/...
+		// -> static/css/... in embed).
+		http.StripPrefix("/graphql", http.FileServer(fsys)).ServeHTTP(w, r)
+		return
+	}
+
+	// Non-UI GET: not found (keeps GraphQL endpoint clean).
+	http.NotFound(w, r)
 }
