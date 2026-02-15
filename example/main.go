@@ -53,6 +53,20 @@ type CreateUserInput struct {
 	Role            Role
 }
 
+// ContactByInput demonstrates @oneOf input object (Oct 2021+ spec for input unions:
+// exactly one non-null field; exclusive choice like email OR phone; aligns w/
+// Union/Interface embeds in README.md, OneOfInput marker, and validation in
+// schemabuilder/input_object.go). Use pointers for optional fields per input patterns.
+// Introspected as INPUT_OBJECT w/ @oneOf directive.
+type ContactByInput struct {
+	// schemabuilder.OneOfInput marker for @oneOf (INPUT_OBJECT; exclusive fields).
+	// See types.go for doc/example; enables spec-compliant mutation input.
+	schemabuilder.OneOfInput
+	// Exactly one of these; others omitted in mutation call.
+	Email *string
+	Phone *string
+}
+
 // =============================================================================
 // 2. Data Store (Mock)
 // =============================================================================
@@ -146,6 +160,14 @@ func RegisterInputs(sb *schemabuilder.Schema) {
 	input.FieldFunc("reputation", func(target *CreateUserInput, source float64) { target.ReputationScore = source })
 	input.FieldFunc("isActive", func(target *CreateUserInput, source bool) { target.IsActive = source })
 	input.FieldFunc("role", func(target *CreateUserInput, source Role) { target.Role = source })
+
+	// Register oneOf input for @oneOf demo (spec input union; marker embed sets
+	// graphql.InputObject.OneOf=true; see input_object.go generateObjectParserInner +
+	// hasOneOfMarkerEmbedded). FieldFuncs populate target (like CreateUserInput).
+	// Allows mutation arg w/ exactly one field (email OR phone).
+	oneOfInput := sb.InputObject("ContactByInput", ContactByInput{})
+	oneOfInput.FieldFunc("email", func(target *ContactByInput, source *string) { target.Email = source })
+	oneOfInput.FieldFunc("phone", func(target *ContactByInput, source *string) { target.Phone = source })
 }
 
 func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
@@ -192,6 +214,33 @@ func RegisterMutation(sb *schemabuilder.Schema, s *Server) {
 		}
 		s.users = append(s.users, newUser)
 		return newUser
+	})
+
+	// contactBy mutation demonstrates @oneOf input (ContactByInput w/ embed
+	// OneOfInput; exactly one field: email OR phone per spec/validation in
+	// schemabuilder). Args struct pattern from createUser/FieldFunc in README.md.
+	// Finds user (resolver style like user query); errors on invalid input (enforced
+	// by oneOf). Aligns w/ input unions for polymorphic mutations.
+	m.FieldFunc("contactBy", func(ctx context.Context, args struct {
+		Input *ContactByInput
+	}) (*User, error) {
+		if args.Input == nil {
+			return nil, errors.New("input required")
+		}
+		// Exactly one field non-null (validated upstream; here handle).
+		var matchEmail, matchPhone string
+		if args.Input.Email != nil {
+			matchEmail = *args.Input.Email
+		}
+		if args.Input.Phone != nil {
+			matchPhone = *args.Input.Phone
+		}
+		for _, u := range s.users {
+			if (matchEmail != "" && u.Email == matchEmail) || (matchPhone != "" && u.Email == matchPhone) { // simplistic phone==email for demo
+				return u, nil
+			}
+		}
+		return nil, fmt.Errorf("user not found by email=%s or phone=%s", matchEmail, matchPhone)
 	})
 }
 
