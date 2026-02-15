@@ -663,7 +663,7 @@ var deprecatedDirective = Directive{
 			// Value "No longer supported" (no extra quotes; JSON marshals to proper
 			// "No..." string per spec/UI/tests; fixes test mismatch).
 			// InputValue dep fields default false/nil.
-			DefaultValue:      func() *string { s := "No longer supported"; return &s }(),
+			DefaultValue:      func() *string { s := "\"No longer supported\""; return &s }(),
 			IsDeprecated:      false,
 			DeprecationReason: nil,
 		},

@@ -1,280 +1,51 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"log"
 	"net/http"
-	"reflect"
-	"time"
 
-	"github.com/google/uuid"
-	"go.appointy.com/jaal"
-	"go.appointy.com/jaal/introspection"
-	"go.appointy.com/jaal/schemabuilder"
+	"go.appointy.com/jaal/example/users"
 )
 
 // =============================================================================
-// 1. Domain Models
+// Refactor Complete: Domain models, Server, and registrations (incl. scalars,
+// enums, objects, inputs w/ CreateUserInput + ContactByInput@oneOf, queries,
+// mutations w/ contactBy, subs) moved to example/users/ (types.go, register_*.go,
+// register_schema.go, server.go) for readability/testing.
+// Main simplified: uses users.GetGraphqlServer(); no breaking changes.
 // =============================================================================
 
-// User demonstrates the use of standard GraphQL scalars + ID + Time.
-type User struct {
-	ID              schemabuilder.ID `graphql:"id"`
-	Name            string           `graphql:"name"`
-	Email           string           `graphql:"email"`
-	Age             int32            `graphql:"age"`
-	ReputationScore float64          `graphql:"reputation"`
-	IsActive        bool             `graphql:"isActive"`
-	Role            Role             `graphql:"role"`
-	CreatedAt       time.Time        `graphql:"createdAt"`
-}
-
-type Role string
-
-const (
-	RoleAdmin  Role = "ADMIN"
-	RoleMember Role = "MEMBER"
-	RoleGuest  Role = "GUEST"
-)
-
-// Inputs
-// Deprecation on input values demo (spec: INPUT_FIELD_DEFINITION via graphql/json tag).
-// e.g., Age field deprecated; reflected in introspection __InputValue.isDeprecated/deprecationReason.
-// Parse support in reflect.go/input_object.go.
-type CreateUserInput struct {
-	Name            string
-	Email           string
-	// Age deprecated (example for ARGUMENT_DEFINITION too in FieldFunc args).
-	Age             int32 `json:"age" graphql:",deprecated=Use birthdate instead"`
-	ReputationScore float64
-	IsActive        bool
-	Role            Role
-}
-
-// ContactByInput demonstrates @oneOf input object (Oct 2021+ spec for input unions:
-// exactly one non-null field; exclusive choice like email OR phone; aligns w/
-// Union/Interface embeds in README.md, OneOfInput marker, and validation in
-// schemabuilder/input_object.go). Use pointers for optional fields per input patterns.
-// Introspected as INPUT_OBJECT w/ @oneOf directive.
-type ContactByInput struct {
-	// schemabuilder.OneOfInput marker for @oneOf (INPUT_OBJECT; exclusive fields).
-	// See types.go for doc/example; enables spec-compliant mutation input.
-	schemabuilder.OneOfInput
-	// Exactly one of these; others omitted in mutation call.
-	Email *string
-	Phone *string
-}
-
-// =============================================================================
-// 2. Data Store (Mock)
-// =============================================================================
-
-type Server struct {
-	users []*User
-}
-
-func NewServer() *Server {
-	return &Server{
-		users: []*User{
-			{
-				ID:              schemabuilder.ID{Value: "u1"},
-				Name:            "John Doe",
-				Email:           "jdoe@example.com",
-				Age:             30,
-				ReputationScore: 9.5,
-				IsActive:        true,
-				Role:            RoleAdmin,
-				CreatedAt:       time.Now(),
-			},
-		},
-	}
-}
+// (Data store refactored to users/types.go)
 
 // =============================================================================
 // 3. Schema Registration (Modular)
 // =============================================================================
 
-func init() {
-	typ := reflect.TypeOf(time.Time{})
-	// Register DateTime scalar with @specifiedBy URL for full spec compliance
-	// (Oct 2021+; exposed in introspection as __Type.specifiedByURL).
-	// URL links external spec (RFC3339); backward compat for other scalars.
-	schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
-		v, ok := value.(string)
-		if !ok {
-			return errors.New("invalid type expected string")
-		}
-
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return err
-		}
-
-		dest.Set(reflect.ValueOf(t))
-
-		return nil
-	}, "https://tools.ietf.org/html/rfc3339")
-}
+// init() for scalars refactored to users/register_scalars.go (RegisterScalars).
 
 // RegisterSchema orchestrates the registration of all schema components.
-func RegisterSchema(sb *schemabuilder.Schema, s *Server) {
-	RegisterEnums(sb)
-	RegisterObjects(sb)
-	RegisterInputs(sb)
+// All Register* funcs (Schema/Enums/Objects/Inputs/Query/Mutation) refactored
+// to example/users/ subdir for modularity. See register_schema.go aggregator
+// and per-type files. (OneOf ContactByInput/contactBy mutation preserved.)
 
-	RegisterQuery(sb, s)
-	RegisterMutation(sb, s)
-	RegisterSubscription(sb)
-}
-
-func RegisterEnums(sb *schemabuilder.Schema) {
-	sb.Enum(RoleMember, map[string]interface{}{
-		"ADMIN":  RoleAdmin,
-		"MEMBER": RoleMember,
-		"GUEST":  RoleGuest,
-	})
-}
-
-func RegisterObjects(sb *schemabuilder.Schema) {
-	user := sb.Object("User", User{})
-
-	// FieldFuncs allow you to map struct fields to GraphQL fields explicitly
-	user.FieldFunc("id", func(u *User) schemabuilder.ID { return u.ID })
-	user.FieldFunc("name", func(u *User) string { return u.Name })
-	user.FieldFunc("email", func(u *User) string { return u.Email })
-	user.FieldFunc("age", func(u *User) int32 { return u.Age })
-	user.FieldFunc("reputation", func(u *User) float64 { return u.ReputationScore })
-	user.FieldFunc("isActive", func(u *User) bool { return u.IsActive })
-	user.FieldFunc("role", func(u *User) Role { return u.Role })
-	user.FieldFunc("createdAt", func(u *User) time.Time { return u.CreatedAt })
-}
-
-func RegisterInputs(sb *schemabuilder.Schema) {
-	input := sb.InputObject("CreateUserInput", CreateUserInput{})
-
-	input.FieldFunc("name", func(target *CreateUserInput, source string) { target.Name = source })
-	input.FieldFunc("email", func(target *CreateUserInput, source string) { target.Email = source })
-	input.FieldFunc("age", func(target *CreateUserInput, source int32) { target.Age = source })
-	input.FieldFunc("reputation", func(target *CreateUserInput, source float64) { target.ReputationScore = source })
-	input.FieldFunc("isActive", func(target *CreateUserInput, source bool) { target.IsActive = source })
-	input.FieldFunc("role", func(target *CreateUserInput, source Role) { target.Role = source })
-
-	// Register oneOf input for @oneOf demo (spec input union; marker embed sets
-	// graphql.InputObject.OneOf=true; see input_object.go generateObjectParserInner +
-	// hasOneOfMarkerEmbedded). FieldFuncs populate target (like CreateUserInput).
-	// Allows mutation arg w/ exactly one field (email OR phone).
-	oneOfInput := sb.InputObject("ContactByInput", ContactByInput{})
-	oneOfInput.FieldFunc("email", func(target *ContactByInput, source *string) { target.Email = source })
-	oneOfInput.FieldFunc("phone", func(target *ContactByInput, source *string) { target.Phone = source })
-}
-
-func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
-	q := sb.Query()
-
-	q.FieldFunc("me", func(ctx context.Context) *User {
-		if len(s.users) > 0 {
-			return s.users[0]
-		}
-		return nil
-	})
-
-	q.FieldFunc("user", func(ctx context.Context, args struct {
-		ID schemabuilder.ID
-	}) (*User, error) {
-		for _, u := range s.users {
-			if u.ID.Value == args.ID.Value {
-				return u, nil
-			}
-		}
-		return nil, fmt.Errorf("user not found")
-	})
-
-	q.FieldFunc("allUsers", func(ctx context.Context) []*User {
-		return s.users
-	})
-}
-
-func RegisterMutation(sb *schemabuilder.Schema, s *Server) {
-	m := sb.Mutation()
-
-	m.FieldFunc("createUser", func(ctx context.Context, args struct {
-		Input CreateUserInput
-	}) *User {
-		newUser := &User{
-			ID:              schemabuilder.ID{Value: uuid.New().String()},
-			Name:            args.Input.Name,
-			Email:           args.Input.Email,
-			Age:             args.Input.Age,
-			ReputationScore: args.Input.ReputationScore,
-			IsActive:        args.Input.IsActive,
-			Role:            args.Input.Role,
-			CreatedAt:       time.Now(),
-		}
-		s.users = append(s.users, newUser)
-		return newUser
-	})
-
-	// contactBy mutation demonstrates @oneOf input (ContactByInput w/ embed
-	// OneOfInput; exactly one field: email OR phone per spec/validation in
-	// schemabuilder). Args struct pattern from createUser/FieldFunc in README.md.
-	// Finds user (resolver style like user query); errors on invalid input (enforced
-	// by oneOf). Aligns w/ input unions for polymorphic mutations.
-	m.FieldFunc("contactBy", func(ctx context.Context, args struct {
-		Input *ContactByInput
-	}) (*User, error) {
-		if args.Input == nil {
-			return nil, errors.New("input required")
-		}
-		// Exactly one field non-null (validated upstream; here handle).
-		var matchEmail, matchPhone string
-		if args.Input.Email != nil {
-			matchEmail = *args.Input.Email
-		}
-		if args.Input.Phone != nil {
-			matchPhone = *args.Input.Phone
-		}
-		for _, u := range s.users {
-			if (matchEmail != "" && u.Email == matchEmail) || (matchPhone != "" && u.Email == matchPhone) { // simplistic phone==email for demo
-				return u, nil
-			}
-		}
-		return nil, fmt.Errorf("user not found by email=%s or phone=%s", matchEmail, matchPhone)
-	})
-}
-
-// RegisterSubscription adds a functional subscription.
-func RegisterSubscription(sb *schemabuilder.Schema) {
-	s := sb.Subscription()
-
-	// The resolver must return a function that returns the channel.
-	s.FieldFunc("currentTime", func(ctx context.Context) func() time.Time {
-		return time.Now
-	})
-}
+// RegisterSubscription refactored to example/users/register_subscriptions.go
 
 // =============================================================================
 // 4. Main Execution
 // =============================================================================
 
+// GetGraphqlServer encapsulates schema build (from users/server.go).
+// main simplified: get handler, register route, serve (per refactor task).
 func main() {
-	sb := schemabuilder.NewSchema()
-	server := NewServer()
-
-	RegisterSchema(sb, server)
-
-	schema, err := sb.Build()
+	// GetGraphqlServer: NewSchema, RegisterSchema(all incl. oneOf ContactByInput),
+	// Build, AddIntrospection, jaal.HTTPHandler. Err on fail.
+	h, err := users.GetGraphqlServer()
 	if err != nil {
-		log.Fatalf("Failed to build schema: %v", err)
+		log.Fatalf("Failed to get GraphQL server: %v", err)
 	}
 
-	introspection.AddIntrospectionToSchema(schema)
-
-	// Jaal HTTPHandler handles Queries and Mutations.
-	// Note: For Subscriptions to work in a real browser env, you usually need
-	// a WebSocket handler wrapper, but this is the standard Jaal HTTP entry point.
-	http.Handle("/graphql", jaal.HTTPHandler(schema))
+	// /graphql for queries/muts/subs + Playground UI.
+	http.Handle("/graphql", h)
 
 	log.Println("Server running on :8080")
 	log.Println("Playground: http://localhost:8080/graphql")
