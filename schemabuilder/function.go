@@ -76,6 +76,10 @@ func (sb *schemaBuilder) buildFunctionAndFuncCtx(typ reflect.Type, m *method) (*
 		Expensive:      funcCtx.hasContext,
 		External:       true,
 		LazyExecution:  funcCtx.returnsFunc,
+		// Description for FIELD_DEFINITION (from method in FieldFunc variadic;
+		// per descriptions extension; "" default for BC; to __Field.description).
+		// Matches m.Description set in types.go.Object.FieldFunc.
+		Description: m.Description,
 		LazyResolver: func(ctx context.Context, fun interface{}) (interface{}, error) {
 			callableFunc := reflect.ValueOf(fun)
 

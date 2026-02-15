@@ -78,6 +78,41 @@ Detailed Step-by-Step Changes (dependency order, following patterns e.g., Descri
 
 **Non-Code**: Update SPEC_COMPLIANCE_PLAN.md (mark schema descs); tests cover.
 
+## Extension for Object Fields Descriptions (FIELD_DEFINITION)
+To fully support descriptions on fields (as requested; FIELD_DEFINITION in spec/__Field.description for Playground field docs):
+
+- **High-Level**: Extend like deprecation on fields (reflect.go tag parse -> graphQLFieldInfo -> graphql.Field). Add Description to graphql.Field; parse from tag in reflect.go (e.g., `graphql:"name,description=..."` or `graphql:",description=..."`); propagate in buildField/buildFunction/output.go; update introspection registerField.FieldFunc("description"); tests extend for field descs.
+
+Detailed Additional Changes:
+1. **Update graphql/types.go**:
+   - Add `Description string` to `Field` struct (omitempty? ; like IsDeprecated/DeprecationReason).
+   - Why: Core for FIELD_DEFINITION; used in introspection output.Object/Interface fields.
+
+2. **Extend in schemabuilder/reflect.go + output.go/function.go**:
+   - reflect.go: Update graphQLFieldInfo add Description string; parseGraphQLFieldInfo parse tag for ,description=... (split key=val like deprecated; e.g., after depReason).
+   - output.go: buildField use fieldInfo.Description? (but buildField for struct fields; pass from); buildFunction for FieldFunc method: extend to parse desc (comment or future opt).
+   - function.go: In buildFunction: add desc to returned graphql.Field.
+   - input_object.go: For input fields desc if needed (minor).
+   - Why: Entry via tag (pattern from DeprecationReason; BC); for FieldFunc resolvers in README/example/users.
+
+3. **Update Introspection in introspection/introspection.go**:
+   - registerField: FieldFunc("description", func(in field) string { return in.Description }) - remove stub/hardcode "" .
+   - In registerType fields case: pull desc from graphql.Field.Description.
+   - Similar for input args if.
+   - Why: __Field.description now returns (Playground field docs; like type desc).
+
+**Non-Code for Extension**: README update FieldFunc w/ desc tag; SPEC_COMPLIANCE_PLAN.md.
+
+## Tests Needed for Extension (Fields)
+**Goal**: Field descs in intro/Playground; no break (existing fields w/o desc="", like User in example/users).
+
+1. **Unit** (schemabuilder): Test parseGraphQLFieldInfo tag w/ desc; buildField sets in graphql.Field.
+2. **Introspection** (introspection_test.go): Test field desc in __type/FullType (e.g., User.name desc); JSON assert; no-desc field "".
+3. **E2E**: http_test/example query introspection; Playground field docs.
+4. **Edge**: Tag parse w/ special chars/empty; compat w/ deprecation/oneOf.
+
+This completes field descs. Review for tag syntax (e.g., graphql:"name,description=...") vs opt in FieldFunc.
+
 ## Tests Needed to Verify Changes
 **Goal**: Ensure descs set/returned in intro/Playground, no regressions (existing regs/objects/inputs like in example/users/; oneOf/deprecation). Use patterns: table-driven introspection_test.go, end_to_end; DeepEqual JSON; go test -cover.
 

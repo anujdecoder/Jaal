@@ -389,13 +389,14 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Use Field.IsDeprecated/DeprecationReason (now supports @deprecated on
-				// fields + args per spec; ARGUMENT_DEFINITION enabled via InputValue in args).
-				// Description zero (no support in graphql.Field); remove force-false stub.
-				// DeprecationReason nil for omitempty (UI/playground compat).
+				// Use Field.IsDeprecated/DeprecationReason/Description (now supports
+				// @deprecated + descriptions on FIELD_DEFINITION per spec; pulled from
+				// graphql.Field set in schemabuilder output/function.go/reflect.go tag).
+				// DeprecationReason nil for omitempty (UI/playground compat); Description
+				// "" default for BC.
 				fields = append(fields, field{
 					Name:              name,
-					Description:       "",
+					Description:       f.Description,
 					Type:              Type{Inner: f.Type},
 					Args:              args,
 					IsDeprecated:      f.IsDeprecated,
@@ -418,13 +419,14 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Use Field.IsDeprecated/DeprecationReason (now supports @deprecated on
-				// fields + args per spec; ARGUMENT_DEFINITION enabled via InputValue in args).
-				// Description zero (no support in graphql.Field); remove force-false stub.
-				// DeprecationReason nil for omitempty (UI/playground compat).
+				// Use Field.IsDeprecated/DeprecationReason/Description (now supports
+				// @deprecated + descriptions on FIELD_DEFINITION per spec; pulled from
+				// graphql.Field set in schemabuilder output/function.go/reflect.go tag).
+				// DeprecationReason nil for omitempty (UI/playground compat); Description
+				// "" default for BC.
 				fields = append(fields, field{
 					Name:              name,
-					Description:       "",
+					Description:       f.Description,
 					Type:              Type{Inner: f.Type},
 					Args:              args,
 					IsDeprecated:      f.IsDeprecated,

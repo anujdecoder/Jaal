@@ -183,8 +183,12 @@ type Field struct {
 	// IsDeprecated marks field/arg deprecated (@deprecated directive).
 	// DeprecationReason *string (nil/empty omitted in JSON per spec/UI; prevents
 	// playground marking all as deprecated, matching existing stubs).
+	// Per descriptions feature, Description string for FIELD_DEFINITION (set via
+	// tag in reflect.go; "" default; exposed in __Field.description for Playground).
+	// Matches Object.Description/DeprecationReason (omitempty if needed).
 	IsDeprecated      bool
 	DeprecationReason *string `json:"deprecationReason,omitempty"`
+	Description       string  `json:"description,omitempty"`
 }
 
 //Schema used to validate and resolve the queries

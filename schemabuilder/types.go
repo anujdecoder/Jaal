@@ -52,6 +52,9 @@ type Methods map[string]*method
 type method struct {
 	MarkedNonNullable bool
 	Fn                interface{}
+	// Description for FIELD_DEFINITION (descriptions feature extension; set via
+	// FieldFunc variadic; "" default; to graphql.Field for __Field.description/Playground).
+	Description string
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
@@ -138,12 +141,26 @@ var scalarSpecifiedByURLs = map[reflect.Type]string{}
 //        userID, err := db.AddUser(ctx, args.FirstName, args.LastName)
 //        return userID, err
 //    })
-func (s *Object) FieldFunc(name string, f interface{}) {
+//
+// Per descriptions feature extension for FIELD_DEFINITION, optional variadic
+// description (last arg) sets desc (e.g., FieldFunc("name", fn, "Field desc") ;
+// "" default for BC; parsed to graphql.Field.Description; tag parse for struct
+// fields alternative in reflect.go).
+// Mirrors Object(name, typ, desc...) and InputObject.
+func (s *Object) FieldFunc(name string, f interface{}, description ...string) {
 	if s.Methods == nil {
 		s.Methods = make(Methods)
 	}
 
-	m := &method{Fn: f}
+	desc := ""
+	if len(description) > 0 {
+		desc = description[0]
+	}
+	if len(description) > 1 {
+		panic("at most one description allowed for FieldFunc")
+	}
+
+	m := &method{Fn: f, Description: desc}
 
 	if _, ok := s.Methods[name]; ok {
 		panic("duplicate method")

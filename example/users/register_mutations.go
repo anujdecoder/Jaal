@@ -16,7 +16,7 @@ func RegisterCreateUserMutation(sb *schemabuilder.Schema, s *Server) {
 	m := sb.Mutation() // Note: shared Mutation obj; funcs append.
 
 	// createUser: takes CreateUserInput, creates/appends User (UUID ID, time).
-	// Resolver pattern from README/main.go.
+	// Resolver pattern from README/main.go; field desc for FIELD_DEFINITION.
 	m.FieldFunc("createUser", func(ctx context.Context, args struct {
 		Input CreateUserInput
 	}) *User {
@@ -32,7 +32,7 @@ func RegisterCreateUserMutation(sb *schemabuilder.Schema, s *Server) {
 		}
 		s.users = append(s.users, newUser)
 		return newUser
-	})
+	}, "Creates a new user from input data.")
 }
 
 // RegisterContactByMutation registers contactBy mutation (uses ContactByInput
@@ -42,7 +42,7 @@ func RegisterContactByMutation(sb *schemabuilder.Schema, s *Server) {
 
 	// contactBy: *ContactByInput arg (oneOf validated in parser); resolver finds
 	// by field (simplified match; error otherwise). Mirrors createUser + oneOf
-	// example from prior.
+	// example from prior; field desc for FIELD_DEFINITION.
 	m.FieldFunc("contactBy", func(ctx context.Context, args struct {
 		Input *ContactByInput
 	}) (*User, error) {
@@ -64,7 +64,7 @@ func RegisterContactByMutation(sb *schemabuilder.Schema, s *Server) {
 			}
 		}
 		return nil, fmt.Errorf("user not found by email=%s or phone=%s", matchEmail, matchPhone)
-	})
+	}, "Finds user by exactly one of email or phone (oneOf input union).")
 }
 
 // RegisterMutation aggregator calls specific mutation reg funcs (per task).

@@ -16,12 +16,15 @@ func RegisterObjects(sb *schemabuilder.Schema) {
 	// Description per feature (Object variadic; in __Type.description).
 	user := sb.Object("User", User{}, "User payload representing a person in the system.")
 
-	user.FieldFunc("id", func(u *User) schemabuilder.ID { return u.ID })
-	user.FieldFunc("name", func(u *User) string { return u.Name })
-	user.FieldFunc("email", func(u *User) string { return u.Email })
-	user.FieldFunc("age", func(u *User) int32 { return u.Age })
-	user.FieldFunc("reputation", func(u *User) float64 { return u.ReputationScore })
-	user.FieldFunc("isActive", func(u *User) bool { return u.IsActive })
-	user.FieldFunc("role", func(u *User) Role { return u.Role })
-	user.FieldFunc("createdAt", func(u *User) time.Time { return u.CreatedAt })
+	// FieldFunc w/ desc for FIELD_DEFINITION (extension; variadic to graphql.Field
+	// /__Field.description/Playground; e.g., for id/name).
+	// Mirrors query/mut field descs.
+	user.FieldFunc("id", func(u *User) schemabuilder.ID { return u.ID }, "Unique identifier for the user.")
+	user.FieldFunc("name", func(u *User) string { return u.Name }, "Full name of the user.")
+	user.FieldFunc("email", func(u *User) string { return u.Email }, "Email address.")
+	user.FieldFunc("age", func(u *User) int32 { return u.Age }, "Age in years.")
+	user.FieldFunc("reputation", func(u *User) float64 { return u.ReputationScore }, "Reputation score (0-10).")
+	user.FieldFunc("isActive", func(u *User) bool { return u.IsActive }, "Whether the user is active.")
+	user.FieldFunc("role", func(u *User) Role { return u.Role }, "User role (ADMIN/MEMBER/GUEST).")
+	user.FieldFunc("createdAt", func(u *User) time.Time { return u.CreatedAt }, "Account creation timestamp.")
 }

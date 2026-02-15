@@ -188,10 +188,20 @@ func (sb *schemaBuilder) buildUnionStruct(typ reflect.Type) error {
 }
 
 // buildField generates a graphQL field for a struct's field.  This field can be used to "resolve" a response for a graphql request.
-func (sb *schemaBuilder) buildField(field reflect.StructField) (*graphql.Field, error) {
+// Per descriptions feature extension for FIELD_DEFINITION, now accepts fieldInfo (from
+// parseGraphQLFieldInfo in reflect.go) to set Description (from tag e.g.,
+// `graphql:"name,description=..."`; "" default; to graphql.Field for __Field.description).
+// Mirrors deprecation prop; for struct fields in buildStruct (FieldFunc methods stub "").
+func (sb *schemaBuilder) buildField(field reflect.StructField, fieldInfo *graphQLFieldInfo) (*graphql.Field, error) {
 	retType, err := sb.getType(field.Type)
 	if err != nil {
 		return nil, err
+	}
+
+	// Description from fieldInfo (tag parse; BC "").
+	desc := ""
+	if fieldInfo != nil {
+		desc = fieldInfo.Description
 	}
 
 	return &graphql.Field{
@@ -204,6 +214,7 @@ func (sb *schemaBuilder) buildField(field reflect.StructField) (*graphql.Field, 
 		},
 		Type:           retType,
 		ParseArguments: nilParseArguments,
+		Description:    desc,
 	}, nil
 }
 
