@@ -667,11 +667,14 @@ var deprecatedDirective = Directive{
 			Name:        "reason",
 			Type:        Type{Inner: &graphql.Scalar{Type: "String"}},
 			Description: "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
-			// Default per spec; set as *string (nil fallback OK; no resolver override).
-			// Value "No longer supported" (no extra quotes; JSON marshals to proper
-			// "No..." string per spec/UI/tests; fixes test mismatch).
-			// InputValue dep fields default false/nil.
-			DefaultValue:      func() *string { s := "No longer supported"; return &s }(),
+			// Default per spec; set as *string (the GraphQL literal string, so
+			// include quotes for string default: "\"No longer supported\"" ).
+			// This ensures when GraphiQL/Playground builds SDL from introspection
+			// response (defaultValue in __Directive arg), it's valid quoted string
+			// (= "No longer supported"); JSON: "defaultValue": "\"No longer...\"".
+			// InputValue dep fields default false/nil. Matches spec SDL defaultValue
+			// as string (was broken causing playground syntax err on "longer").
+			DefaultValue:      func() *string { s := "\"No longer supported\""; return &s }(),
 			IsDeprecated:      false,
 			DeprecationReason: nil,
 		},
