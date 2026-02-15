@@ -5,8 +5,9 @@ import "go.appointy.com/jaal/schemabuilder"
 // RegisterCreateUserInput registers the CreateUserInput (w/ deprecation tag example
 // for INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION spec support). Specific reg func
 // per task; FieldFunc setup mirrors schemabuilder/input_object.go + main.go original.
+// Description via variadic (descriptions feature; to graphql.InputObject/__Type.description).
 func RegisterCreateUserInput(sb *schemabuilder.Schema) {
-	input := sb.InputObject("CreateUserInput", CreateUserInput{})
+	input := sb.InputObject("CreateUserInput", CreateUserInput{}, "Input for creating a new user (supports name, email, role etc; age field deprecated for legacy).")
 
 	// FieldFuncs to populate target struct from input (name/email etc).
 	// Deprecation on Age via tag (reflect.go parse).
@@ -21,10 +22,12 @@ func RegisterCreateUserInput(sb *schemabuilder.Schema) {
 // RegisterContactByInput registers the oneOf input (ContactByInput w/ OneOfInput
 // embed for @oneOf spec input union; exactly one field). Specific func per task;
 // mirrors RegisterCreateUserInput + README/oneOf demo in mutation.
+// Uses setter for desc (alt to variadic; per plan).
 func RegisterContactByInput(sb *schemabuilder.Schema) {
 	// oneOf input reg (INPUT_OBJECT w/ marker; sets OneOf=true in graphql.InputObject
 	// via input_object.go detect; FieldFunc for email/phone).
-	oneOfInput := sb.InputObject("ContactByInput", ContactByInput{})
+	// Description via variadic param (descriptions feature; spec for INPUT_OBJECT).
+	oneOfInput := sb.InputObject("ContactByInput", ContactByInput{}, "OneOf input for contacting user by exactly one of email or phone (spec input union; exclusive fields).")
 	oneOfInput.FieldFunc("email", func(target *ContactByInput, source *string) { target.Email = source })
 	oneOfInput.FieldFunc("phone", func(target *ContactByInput, source *string) { target.Phone = source })
 }

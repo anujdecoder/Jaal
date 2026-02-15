@@ -31,8 +31,9 @@ type cachedType struct {
 // This function will be called recursively for types as we go through the graph.
 func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 	// Support scalars and optional scalars. Scalars have precedence over structs to have eg. time.Time function as a scalar.
-	if typeName, values, ok := sb.getEnum(nodeType); ok {
-		return &graphql.NonNull{Type: &graphql.Enum{Type: typeName, Values: values, ReverseMap: sb.enumMappings[nodeType].ReverseMap}}, nil
+	// For enums, include Description (descriptions feature; from getEnum).
+	if typeName, values, desc, ok := sb.getEnum(nodeType); ok {
+		return &graphql.NonNull{Type: &graphql.Enum{Type: typeName, Values: values, ReverseMap: sb.enumMappings[nodeType].ReverseMap, Description: desc}}, nil
 	}
 
 	if typeName, specifiedByURL, ok := getScalar(nodeType); ok {
@@ -80,15 +81,18 @@ func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 }
 
 // getEnum gets the Enum type information for the passed in reflect.Type by looking it up in our enum mappings.
-func (sb *schemaBuilder) getEnum(typ reflect.Type) (string, []string, bool) {
-	if sb.enumMappings[typ] != nil {
+// Returns name, values, description (per descriptions feature from EnumMapping;
+// "" default; for graphql.Enum.Description/__Type), and ok.
+// Matches getScalar (w/ metadata like SpecifiedByURL).
+func (sb *schemaBuilder) getEnum(typ reflect.Type) (string, []string, string, bool) {
+	if em, ok := sb.enumMappings[typ]; ok && em != nil {
 		var values []string
-		for mapping := range sb.enumMappings[typ].Map {
+		for mapping := range em.Map {
 			values = append(values, mapping)
 		}
-		return typ.Name(), values, true
+		return typ.Name(), values, em.Description, true
 	}
-	return "", nil, false
+	return "", nil, "", false
 }
 
 // getScalar grabs the appropriate scalar graphql field type name for the passed

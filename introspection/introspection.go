@@ -278,6 +278,14 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			return t.Description
 		case *graphql.Interface:
 			return t.Description
+		// For descriptions feature: pull from InputObject/Enum (set via
+		// schemabuilder reg; default ""; Scalar no desc yet). Matches
+		// graphql/types.go; ensures __Type.description for Playground/intro.
+		// Default "" for BC (no desc on other types).
+		case *graphql.InputObject:
+			return t.Description
+		case *graphql.Enum:
+			return t.Description
 		default:
 			return ""
 		}
@@ -663,7 +671,7 @@ var deprecatedDirective = Directive{
 			// Value "No longer supported" (no extra quotes; JSON marshals to proper
 			// "No..." string per spec/UI/tests; fixes test mismatch).
 			// InputValue dep fields default false/nil.
-			DefaultValue:      func() *string { s := "\"No longer supported\""; return &s }(),
+			DefaultValue:      func() *string { s := "No longer supported"; return &s }(),
 			IsDeprecated:      false,
 			DeprecationReason: nil,
 		},

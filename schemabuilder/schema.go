@@ -28,7 +28,9 @@ func NewSchema() *Schema {
 
 // Enum registers an enumType in the schema. The val should be any arbitrary value
 // of the enumType to be used for reflection, and the enumMap should be
-// the corresponding map of the enums.
+// the corresponding map of the enums. Optional variadic description (last arg)
+// sets @description for ENUM (spec; exposed in introspection __Type/__EnumValue.description;
+// "" default for BC w/ existing; matches Object/InputObject desc param).
 //
 // For example a enum could be declared as follows:
 //   type enumType int32
@@ -43,15 +45,22 @@ func NewSchema() *Schema {
 //     "one":   enumType(1),
 //     "two":   enumType(2),
 //     "three": enumType(3),
-//   })
-func (s *Schema) Enum(val interface{}, enumMap interface{}) {
+//   }, "My enum description")
+func (s *Schema) Enum(val interface{}, enumMap interface{}, description ...string) {
 	typ := reflect.TypeOf(val)
 	if s.enumTypes == nil {
 		s.enumTypes = make(map[reflect.Type]*EnumMapping)
 	}
 
 	eMap, rMap := getEnumMap(enumMap, typ)
-	s.enumTypes[typ] = &EnumMapping{Map: eMap, ReverseMap: rMap}
+	desc := ""
+	if len(description) > 0 {
+		desc = description[0]
+	}
+	if len(description) > 1 {
+		panic("at most one description allowed for Enum")
+	}
+	s.enumTypes[typ] = &EnumMapping{Map: eMap, ReverseMap: rMap, Description: desc}
 }
 
 func getEnumMap(enumMap interface{}, typ reflect.Type) (map[string]interface{}, map[interface{}]string) {
@@ -87,8 +96,10 @@ func getEnumMap(enumMap interface{}, typ reflect.Type) (map[string]interface{}, 
 // (https://facebook.github.io/graphql/June2018/#sec-Objects)
 // We'll read the fields of the struct to determine it's basic "Fields" and
 // we'll return an Object struct that we can use to register custom
-// relationships and fields on the object.
-func (s *Schema) Object(name string, typ interface{}) *Object {
+// relationships and fields on the object. Optional variadic description (last arg)
+// sets desc for OBJECT (spec; exposed in __Type.description/Playground; ""
+// default for BC; matches InputObject/Enum).
+func (s *Schema) Object(name string, typ interface{}, description ...string) *Object {
 	if object, ok := s.objects[name]; ok {
 		if reflect.TypeOf(object.Type) != reflect.TypeOf(typ) {
 			var t = reflect.TypeOf(object.Type)
@@ -96,9 +107,17 @@ func (s *Schema) Object(name string, typ interface{}) *Object {
 		}
 		return object
 	}
+	desc := ""
+	if len(description) > 0 {
+		desc = description[0]
+	}
+	if len(description) > 1 {
+		panic("at most one description allowed for Object")
+	}
 	object := &Object{
-		Name: name,
-		Type: typ,
+		Name:        name,
+		Type:        typ,
+		Description: desc,
 	}
 	s.objects[name] = object
 	return object
@@ -115,18 +134,29 @@ func (s *Schema) GetObject(name string, typ interface{}) (*Object, error) {
 }
 
 // InputObject registers a struct as inout object which can be passed as an argument to a query or mutation
-// We'll read through the fields of the struct and create argument parsers to fill the data from graphQL JSON input
-func (s *Schema) InputObject(name string, typ interface{}) *InputObject {
+// We'll read through the fields of the struct and create argument parsers to fill the data from graphQL JSON input.
+// Optional variadic description (last arg) sets desc for INPUT_OBJECT (spec; exposed in
+// __Type.description/Playground; "" default for BC; matches Object/Enum; use
+// .Description(d) setter alternatively for registered input).
+func (s *Schema) InputObject(name string, typ interface{}, description ...string) *InputObject {
 	if inputObject, ok := s.inputObjects[name]; ok {
 		if reflect.TypeOf(inputObject.Type) != reflect.TypeOf(typ) {
 			var t = reflect.TypeOf(inputObject.Type)
 			panic("re-registered input object with different type, already registered type :" + fmt.Sprintf(" %s.%s", t.PkgPath(), t.Name()))
 		}
 	}
+	desc := ""
+	if len(description) > 0 {
+		desc = description[0]
+	}
+	if len(description) > 1 {
+		panic("at most one description allowed for InputObject")
+	}
 	inputObject := &InputObject{
-		Name:   name,
-		Type:   typ,
-		Fields: map[string]interface{}{},
+		Name:        name,
+		Type:        typ,
+		Fields:      map[string]interface{}{},
+		Description: desc,
 	}
 	s.inputObjects[name] = inputObject
 
@@ -267,10 +297,13 @@ func copyObject(object *Object) *Object {
 }
 
 func copyInputObject(input *InputObject) *InputObject {
+	// Copy Description for input objects (descriptions feature; propagates to
+	// graphql.InputObject; BC w/ no desc).
 	copy := &InputObject{
-		Name:   input.Name,
-		Type:   input.Type,
-		Fields: make(map[string]interface{}),
+		Name:        input.Name,
+		Type:        input.Type,
+		Fields:      make(map[string]interface{}),
+		Description: input.Description,
 	}
 
 	for name, field := range input.Fields {
@@ -281,9 +314,11 @@ func copyInputObject(input *InputObject) *InputObject {
 }
 
 func copyEnumMappings(mapping *EnumMapping) *EnumMapping {
+	// Copy Description for enums (descriptions feature; to graphql.Enum).
 	enum := &EnumMapping{
-		Map:        make(map[string]interface{}, len(mapping.Map)),
-		ReverseMap: make(map[interface{}]string, len(mapping.ReverseMap)),
+		Map:         make(map[string]interface{}, len(mapping.Map)),
+		ReverseMap:  make(map[interface{}]string, len(mapping.ReverseMap)),
+		Description: mapping.Description,
 	}
 
 	for key, value := range mapping.Map {

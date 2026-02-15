@@ -73,7 +73,10 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec; from tag parse).
 		// Empty string = non-deprecated (compat); populated below per field.
 		// OneOf for @oneOf INPUT_OBJECT (set below if marker embedded; default false).
+		// Description for INPUT_OBJECT (descriptions feature; default ""; see
+		// registered case below or Object.Description).
 		FieldDeprecations: make(map[string]string),
+		Description:       "",
 	}
 
 	// Detect @oneOf marker early (for arg structs in FieldFunc e.g., args{Input: ContactInput}).
@@ -175,7 +178,11 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		// Matches generateArgParser for struct inputs.
 		// OneOf for @oneOf INPUT_OBJECT (detected via marker embed below; default false
 		// for BC w/ existing registered inputs like CreateUserInput).
+		// Description for INPUT_OBJECT (from schemabuilder.InputObject.Description
+		// setter/variadic param in schema.go; default "" for BC; per descriptions
+		// feature for __Type.description/Playground).
 		FieldDeprecations: make(map[string]string),
+		Description:       obj.Description,
 	}
 
 	// For registered InputObject from struct (e.g., CreateUserInput with graphql/json tags

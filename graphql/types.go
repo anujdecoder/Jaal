@@ -33,11 +33,15 @@ func (s *Scalar) String() string {
 	return s.Type
 }
 
-// Enum is a leaf value
+// Enum is a leaf value.
+// Per descriptions feature, Description string (set via schemabuilder.Enum or
+// future; "" default; exposed in introspection __EnumValue/__Type.description).
+// Matches Object/Union/Interface.Description pattern for spec compliance.
 type Enum struct {
-	Type       string
-	Values     []string
-	ReverseMap map[interface{}]string
+	Type        string
+	Values      []string
+	ReverseMap  map[interface{}]string
+	Description string
 }
 
 func (e *Enum) isType() {}
@@ -81,7 +85,9 @@ func (l *List) String() string {
 // INPUT_FIELD_DEFINITION (key=field name; empty/no entry = non-deprecated).
 // Per OneOf Input Objects spec (Oct 2021+), OneOf bool marks @oneOf directive
 // (for exclusive fields validation in coercion; false/default for existing inputs).
-// Matches Scalar.SpecifiedByURL metadata pattern and Union/Interface structs;
+// Per descriptions feature, Description string (set via schemabuilder; "" default;
+// exposed in __Type/__InputValue.description for Playground/intro).
+// Matches Scalar.SpecifiedByURL, OneOf metadata and Object/Union/Interface structs;
 // json-omitted (introspection only).
 type InputObject struct {
 	Name              string
@@ -90,6 +96,9 @@ type InputObject struct {
 	// OneOf indicates this is a oneOf input object (@oneOf directive on
 	// INPUT_OBJECT; requires exactly one non-null field in input values per spec).
 	OneOf bool `json:"-"`
+	// Description for INPUT_OBJECT (spec; from schemabuilder reg; pulled in
+	// introspection.Type.description; empty default for BC).
+	Description string `json:"-"`
 }
 
 func (io *InputObject) isType() {}

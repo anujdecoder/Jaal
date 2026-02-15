@@ -34,11 +34,16 @@ func (s *Object) Key(f string) {
 	s.key = f
 }
 
-// InputObject represents the input objects passed in queries,mutations and subscriptions
+// InputObject represents the input objects passed in queries,mutations and subscriptions.
+// Per descriptions feature, add Description string (set via .Description() setter or
+// InputObject(name, typ, desc...) in schema.go; "" default; propagates to
+// graphql.InputObject.Description for introspection/__Type.description).
+// Matches Object.Description for non-breaking spec compliance (docs/Playground).
 type InputObject struct {
-	Name   string
-	Type   interface{}
-	Fields map[string]interface{}
+	Name        string
+	Type        interface{}
+	Fields      map[string]interface{}
+	Description string // For INPUT_OBJECT desc (spec; pulled in build).
 }
 
 // A Methods map represents the set of methods exposed on a Object.
@@ -50,9 +55,13 @@ type method struct {
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
+// Per descriptions feature, Description string (set via Enum reg; "" default;
+// exposed in introspection __EnumValue/__Type.description for Playground/spec).
+// Matches Object.Description; for enum types (e.g., Role).
 type EnumMapping struct {
-	Map        map[string]interface{}
-	ReverseMap map[interface{}]string
+	Map         map[string]interface{}
+	ReverseMap  map[interface{}]string
+	Description string
 }
 
 // InterfaceObj is a representation of graphql interface
@@ -173,6 +182,10 @@ func (io *InputObject) FieldFunc(name string, function interface{}) {
 
 	io.Fields[name] = function
 }
+
+// Setter Description(d) removed for InputObject (to avoid field/method name
+// conflict w/ Description string; use variadic schema.InputObject(name, typ, desc)
+// instead - per Object pattern). Field Description exported for propagation.
 
 // UnmarshalFunc is used to unmarshal scalar value from JSON
 type UnmarshalFunc func(value interface{}, dest reflect.Value) error

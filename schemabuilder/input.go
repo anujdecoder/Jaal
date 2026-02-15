@@ -76,10 +76,18 @@ func wrapPtrParser(inner *argParser) *argParser {
 }
 
 // getEnumArgParser creates an arg parser for an Enum type.
+// Pulls Description from EnumMapping (set via schema.Enum(..., desc) per
+// descriptions feature; default "" ; attached to graphql.Enum for
+// __Type/__EnumValue.description in introspection/Playground).
 func (sb *schemaBuilder) getEnumArgParser(typ reflect.Type) (*argParser, graphql.Type) {
 	var values []string
 	for mapping := range sb.enumMappings[typ].Map {
 		values = append(values, mapping)
+	}
+	// Description from enum reg (spec; BC "").
+	desc := ""
+	if em, ok := sb.enumMappings[typ]; ok {
+		desc = em.Description
 	}
 	return &argParser{FromJSON: func(value interface{}, dest reflect.Value) error {
 		asString, ok := value.(string)
@@ -92,7 +100,7 @@ func (sb *schemaBuilder) getEnumArgParser(typ reflect.Type) (*argParser, graphql
 		}
 		dest.Set(reflect.ValueOf(val).Convert(dest.Type()))
 		return nil
-	}, Type: typ}, &graphql.Enum{Type: typ.Name(), Values: values, ReverseMap: sb.enumMappings[typ].ReverseMap}
+	}, Type: typ}, &graphql.Enum{Type: typ.Name(), Values: values, ReverseMap: sb.enumMappings[typ].ReverseMap, Description: desc}
 
 }
 

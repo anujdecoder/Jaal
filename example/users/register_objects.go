@@ -11,9 +11,10 @@ import (
 // RegisterObjects calls them. Pattern from README.md object reg + original
 // RegisterObjects/main.go for fields like id/name.
 func RegisterObjects(sb *schemabuilder.Schema) {
-	// User object registration (output payload).
-	// FieldFuncs map struct fields (e.g., graphql ID); see User type in main.go.
-	user := sb.Object("User", User{})
+	// User object registration (output payload w/ description for spec/Playground).
+	// FieldFuncs map struct fields (e.g., graphql ID); see User type in users/types.go.
+	// Description per feature (Object variadic; in __Type.description).
+	user := sb.Object("User", User{}, "User payload representing a person in the system.")
 
 	user.FieldFunc("id", func(u *User) schemabuilder.ID { return u.ID })
 	user.FieldFunc("name", func(u *User) string { return u.Name })
