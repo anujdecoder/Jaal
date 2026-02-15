@@ -23,15 +23,15 @@ type DirectiveLocation string
 // and ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION for @deprecated on input values
 // (this task). Avoids name conflicts (e.g., _LOC suffix); stubbed minimally for others.
 const (
-	QUERY               DirectiveLocation = "QUERY"
-	MUTATION                              = "MUTATION"
-	FIELD                                 = "FIELD"
-	FRAGMENT_DEFINITION                   = "FRAGMENT_DEFINITION"
-	FRAGMENT_SPREAD                       = "FRAGMENT_SPREAD"
-	INLINE_FRAGMENT                       = "INLINE_FRAGMENT"
-	SUBSCRIPTION                          = "SUBSCRIPTION"
-	SCALAR_LOCATION     DirectiveLocation = "SCALAR"      // for @specifiedBy
-	ARGUMENT_DEFINITION DirectiveLocation = "ARGUMENT_DEFINITION" // for input arg deprecation
+	QUERY                  DirectiveLocation = "QUERY"
+	MUTATION                                 = "MUTATION"
+	FIELD                                    = "FIELD"
+	FRAGMENT_DEFINITION                      = "FRAGMENT_DEFINITION"
+	FRAGMENT_SPREAD                          = "FRAGMENT_SPREAD"
+	INLINE_FRAGMENT                          = "INLINE_FRAGMENT"
+	SUBSCRIPTION                             = "SUBSCRIPTION"
+	SCALAR_LOCATION        DirectiveLocation = "SCALAR"                 // for @specifiedBy
+	ARGUMENT_DEFINITION    DirectiveLocation = "ARGUMENT_DEFINITION"    // for input arg deprecation
 	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION" // for input field deprecation
 )
 
@@ -87,9 +87,9 @@ func (s *introspection) registerInputValue(schema *schemabuilder.Schema) {
 }
 
 type EnumValue struct {
-	Name              string
-	Description       string
-	IsDeprecated      bool
+	Name         string
+	Description  string
+	IsDeprecated bool
 	// DeprecationReason as *string with omitempty to omit from introspection JSON
 	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
 	// playground/GraphiQL when no deprecation set). Matches InputValue.DefaultValue
@@ -148,17 +148,17 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 	// }
 
 	schema.Enum(DirectiveLocation("QUERY"), map[string]interface{}{
-		"QUERY":                 DirectiveLocation("QUERY"),
-		"MUTATION":              DirectiveLocation("MUTATION"),
-		"FIELD":                 DirectiveLocation("FIELD"),
-		"FRAGMENT_DEFINITION":   DirectiveLocation("FRAGMENT_DEFINITION"),
-		"FRAGMENT_SPREAD":       DirectiveLocation("FRAGMENT_SPREAD"),
-		"INLINE_FRAGMENT":       DirectiveLocation("INLINE_FRAGMENT"),
-		"SUBSCRIPTION":          DirectiveLocation("SUBSCRIPTION"),
-		"SCALAR":                DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy
+		"QUERY":               DirectiveLocation("QUERY"),
+		"MUTATION":            DirectiveLocation("MUTATION"),
+		"FIELD":               DirectiveLocation("FIELD"),
+		"FRAGMENT_DEFINITION": DirectiveLocation("FRAGMENT_DEFINITION"),
+		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
+		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
+		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
+		"SCALAR":              DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy
 		// New for deprecation on inputs (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec).
 		// Suffix avoids redecl.
-		"ARGUMENT_DEFINITION":   DirectiveLocation(ARGUMENT_DEFINITION),
+		"ARGUMENT_DEFINITION":    DirectiveLocation(ARGUMENT_DEFINITION),
 		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
 	})
 }
@@ -440,11 +440,11 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 }
 
 type field struct {
-	Name              string
-	Description       string
-	Args              []InputValue
-	Type              Type
-	IsDeprecated      bool
+	Name         string
+	Description  string
+	Args         []InputValue
+	Type         Type
+	IsDeprecated bool
 	// DeprecationReason as *string with omitempty to omit from introspection JSON
 	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
 	// playground/GraphiQL when no deprecation set; fixes reported issue).
@@ -615,12 +615,12 @@ var deprecatedDirective = Directive{
 	Name: "deprecated",
 	Args: []InputValue{
 		InputValue{
-			Name:              "reason",
-			Type:              Type{Inner: &graphql.Scalar{Type: "String"}},
-			Description:       "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
+			Name:        "reason",
+			Type:        Type{Inner: &graphql.Scalar{Type: "String"}},
+			Description: "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
 			// Default per spec; set as *string (nil fallback OK; no resolver override).
 			// InputValue dep fields default false/nil.
-			DefaultValue: func() *string { s := "No longer supported"; return &s }(),
+			DefaultValue:      func() *string { s := "\"No longer supported\""; return &s }(),
 			IsDeprecated:      false,
 			DeprecationReason: nil,
 		},
