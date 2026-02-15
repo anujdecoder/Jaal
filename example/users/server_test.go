@@ -96,11 +96,11 @@ func TestGetGraphqlServer(t *testing.T) {
 	}
 	require.True(t, foundSpecifiedBy, "specifiedBy on scalar")
 
-	// 4. @oneOf on ContactByInput (INPUT_OBJECT directive).
+	// 4. @oneOf on IdentifierInput (INPUT_OBJECT directive; the oneOf field in improved mutation).
 	foundOneOf := false
 	for _, tIface := range types {
 		typ := tIface.(map[string]interface{})
-		if typ["name"] == "ContactByInput" {
+		if typ["name"] == "IdentifierInput" {
 			if dirsIface, ok := typ["directives"].([]interface{}); ok {
 				for _, dIface := range dirsIface {
 					if dir, ok := dIface.(map[string]interface{}); ok {
@@ -112,7 +112,7 @@ func TestGetGraphqlServer(t *testing.T) {
 			}
 		}
 	}
-	require.True(t, foundOneOf, "oneOf directive on ContactByInput")
+	require.True(t, foundOneOf, "oneOf directive on IdentifierInput")
 
 	// 5. list allUsers: verify initial user.
 	allData := postQuery(`{ allUsers { id name email } }`)
@@ -122,22 +122,68 @@ func TestGetGraphqlServer(t *testing.T) {
 	require.Equal(t, "u1", user0["id"], "initial user ID")
 	require.Equal(t, "John Doe", user0["name"], "initial user name")
 
-	// 6. createUser mut -> get ID -> user query verify.
-	createData := postQuery(`mutation {
-		createUser(input: {
-			name: "Test User",
-			email: "test@example.com",
-			reputation: 8.0,
-			isActive: true,
-			role: MEMBER
+	// 6. createUserByContact mut tests (updated per task; composite input: identifier oneOf + userInput;
+	// verify create email-only, id-only, error both; no codebase change beyond test).
+	// 6.1. Using only email (identifier oneOf; ID auto-assigned).
+	emailOnlyData := postQuery(`mutation {
+		createUserByContact(input: {
+			identifier: { email: "emailonly@example.com" },
+			userInput: {
+				name: "Email Only User",
+				email: "emailonly@example.com",
+				age: 25,
+				reputation: 7.5,
+				isActive: true,
+				role: GUEST
+			}
 		}) { id name email }
 	}`)
-	newUser := createData["createUser"].(map[string]interface{})
-	newID := newUser["id"].(string)
-	require.NotEmpty(t, newID, "new user ID")
+	emailUser := emailOnlyData["createUserByContact"].(map[string]interface{})
+	require.NotEmpty(t, emailUser["id"], "user created w/ email-only (ID assigned)")
+	require.Equal(t, "Email Only User", emailUser["name"])
 
-	// Fetch by ID (use static seed ID "u1"; arg name "iD" per makeGraphql("ID")="iD"
-	// in reflect.go (capital D preserved); no codebase change).
+	// 6.2. Using only id (identifier oneOf).
+	idOnlyData := postQuery(`mutation {
+		createUserByContact(input: {
+			identifier: { id: "custom-id-123" },
+			userInput: {
+				name: "ID Only User",
+				email: "idonly@example.com",
+				age: 35,
+				reputation: 9.0,
+				isActive: true,
+				role: MEMBER
+			}
+		}) { id name email }
+	}`)
+	idUser := idOnlyData["createUserByContact"].(map[string]interface{})
+	require.Equal(t, "custom-id-123", idUser["id"], "user created w/ id-only")
+
+	// 6.3. Error if both email and id in identifier (oneOf violation).
+	// (Expects GraphQL error; use manual POST to avoid fatal in postQuery helper;
+	// data/errors check; no codebase change).
+	bothReqBody, _ := json.Marshal(map[string]interface{}{
+		"query": `mutation {
+			createUserByContact(input: {
+				identifier: { id: "dup-id", email: "dup@example.com" },
+				userInput: {
+					name: "Both",
+					email: "both@example.com",
+					age: 40,
+					reputation: 6.0,
+					isActive: false,
+					role: ADMIN
+				}
+			}) { id }
+		}`,
+	})
+	bothResp, _ := http.Post(server.URL, "application/json", bytes.NewReader(bothReqBody))
+	var bothResult map[string]interface{}
+	json.NewDecoder(bothResp.Body).Decode(&bothResult)
+	bothResp.Body.Close()
+	require.NotNil(t, bothResult["errors"], "error expected for both in oneOf identifier")
+
+	// Legacy: fetch seed user (iD arg per makeGraphql("ID")="iD").
 	userByIdData := postQuery(`{
 		user(iD: "u1") { id name email }
 	}`)

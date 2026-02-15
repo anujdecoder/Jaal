@@ -19,22 +19,47 @@ func RegisterCreateUserInput(sb *schemabuilder.Schema) {
 	input.FieldFunc("role", func(target *CreateUserInput, source Role) { target.Role = source })
 }
 
-// RegisterContactByInput registers the oneOf input (ContactByInput w/ OneOfInput
-// embed for @oneOf spec input union; exactly one field). Specific func per task;
-// mirrors RegisterCreateUserInput + README/oneOf demo in mutation.
-// Uses setter for desc (alt to variadic; per plan).
-func RegisterContactByInput(sb *schemabuilder.Schema) {
-	// oneOf input reg (INPUT_OBJECT w/ marker; sets OneOf=true in graphql.InputObject
-	// via input_object.go detect; FieldFunc for email/phone).
-	// Description via variadic param (descriptions feature; spec for INPUT_OBJECT).
-	oneOfInput := sb.InputObject("ContactByInput", ContactByInput{}, "OneOf input for contacting user by exactly one of email or phone (spec input union; exclusive fields).")
-	oneOfInput.FieldFunc("email", func(target *ContactByInput, source *string) { target.Email = source })
-	oneOfInput.FieldFunc("phone", func(target *ContactByInput, source *string) { target.Phone = source })
+// RegisterIdentifierInput registers the oneOf input for identifier (id or email;
+// embed OneOfInput for @oneOf spec input union; exactly one field). Specific func
+// per task; mirrors RegisterCreateUserInput + README/oneOf.
+func RegisterIdentifierInput(sb *schemabuilder.Schema) {
+	// INPUT_OBJECT w/ marker; OneOf=true via detect; FieldFunc for id/email.
+	// Description for Playground/__Type.
+	identifierInput := sb.InputObject("IdentifierInput", IdentifierInput{}, "OneOf identifier: exactly one of ID or email (spec input union).")
+	identifierInput.FieldFunc("id", func(target *IdentifierInput, source *schemabuilder.ID) { target.ID = source })
+	identifierInput.FieldFunc("email", func(target *IdentifierInput, source *string) { target.Email = source })
 }
 
-// RegisterInputs aggregator calls specific input reg funcs (per task for modularity).
-// Allows testing individual (e.g., RegisterContactByInput alone) + full like original.
+// RegisterUserInput registers input for user fields (copy fields; no deprecation).
+// Specific func.
+func RegisterUserInput(sb *schemabuilder.Schema) {
+	// FieldFuncs populate; desc for INPUT_OBJECT.
+	userInput := sb.InputObject("UserInput", UserInput{}, "User fields for creation (name, email etc).")
+	userInput.FieldFunc("name", func(target *UserInput, source string) { target.Name = source })
+	userInput.FieldFunc("email", func(target *UserInput, source string) { target.Email = source })
+	userInput.FieldFunc("age", func(target *UserInput, source int32) { target.Age = source })
+	userInput.FieldFunc("reputation", func(target *UserInput, source float64) { target.ReputationScore = source })
+	userInput.FieldFunc("isActive", func(target *UserInput, source bool) { target.IsActive = source })
+	userInput.FieldFunc("role", func(target *UserInput, source Role) { target.Role = source })
+}
+
+// RegisterCreateUserByContactInput registers composite input for createUserByContact
+// (identifier oneOf + userInput; per task improvement).
+func RegisterCreateUserByContactInput(sb *schemabuilder.Schema) {
+	// Composite input; desc.
+	contactInput := sb.InputObject("CreateUserByContactInput", CreateUserByContactInput{}, "Create user by identifier (oneOf id/email) and user fields.")
+	// FieldFunc for sub-objects (target populate; mirrors input FieldFunc).
+	// Note: sub-inputs registered separately; parser handles nested.
+	contactInput.FieldFunc("identifier", func(target *CreateUserByContactInput, source IdentifierInput) { target.Identifier = source })
+	contactInput.FieldFunc("userInput", func(target *CreateUserByContactInput, source UserInput) { target.UserInput = source })
+}
+
+// RegisterInputs aggregator calls specific input reg funcs (per task for modularity;
+// includes new for createUserByContact).
+// Allows testing individual; full like original.
 func RegisterInputs(sb *schemabuilder.Schema) {
 	RegisterCreateUserInput(sb)
-	RegisterContactByInput(sb)
+	RegisterIdentifierInput(sb)
+	RegisterUserInput(sb)
+	RegisterCreateUserByContactInput(sb)
 }

@@ -35,41 +35,62 @@ func RegisterCreateUserMutation(sb *schemabuilder.Schema, s *Server) {
 	}, "Creates a new user from input data.")
 }
 
-// RegisterContactByMutation registers contactBy mutation (uses ContactByInput
-// w/ @oneOf for exclusive email/phone; spec input union demo). Specific func.
-func RegisterContactByMutation(sb *schemabuilder.Schema, s *Server) {
+// RegisterCreateUserByContactMutation registers improved createUserByContact mutation
+// (uses CreateUserByContactInput: identifier oneOf + userInput; per task).
+// Specific func; replaces old contactBy. Mirrors createUser + oneOf/identifier.
+func RegisterCreateUserByContactMutation(sb *schemabuilder.Schema, s *Server) {
 	m := sb.Mutation()
 
-	// contactBy: *ContactByInput arg (oneOf validated in parser); resolver finds
-	// by field (simplified match; error otherwise). Mirrors createUser + oneOf
-	// example from prior; field desc for FIELD_DEFINITION.
-	m.FieldFunc("contactBy", func(ctx context.Context, args struct {
-		Input *ContactByInput
+	// createUserByContact: input w/ identifier (oneOf id/email validated) + userInput.
+	// Verify no existing by id/email (error if); create from UserInput, assign ID if
+	// email-only; append. Field desc for FIELD_DEFINITION.
+	// Input object composite; parser handles nested oneOf/UserInput.
+	m.FieldFunc("createUserByContact", func(ctx context.Context, args struct {
+		Input CreateUserByContactInput
 	}) (*User, error) {
-		if args.Input == nil {
-			return nil, errors.New("input required")
+		if args.Input.Identifier.ID == nil && args.Input.Identifier.Email == nil {
+			return nil, errors.New("identifier required (id or email)")
 		}
-		// Handle exclusive field (email OR phone; oneOf ensures).
-		var matchEmail, matchPhone string
-		if args.Input.Email != nil {
-			matchEmail = *args.Input.Email
+		// Check no existing user (by id or email).
+		idStr := ""
+		emailStr := ""
+		if args.Input.Identifier.ID != nil {
+			idStr = args.Input.Identifier.ID.Value
 		}
-		if args.Input.Phone != nil {
-			matchPhone = *args.Input.Phone
+		if args.Input.Identifier.Email != nil {
+			emailStr = *args.Input.Identifier.Email
 		}
 		for _, u := range s.users {
-			// Match email (phone demo stub; extend User if needed).
-			if (matchEmail != "" && u.Email == matchEmail) || (matchPhone != "" && u.Email == matchPhone) {
-				return u, nil
+			if (idStr != "" && u.ID.Value == idStr) || (emailStr != "" && u.Email == emailStr) {
+				return nil, fmt.Errorf("user already exists by id=%s or email=%s", idStr, emailStr)
 			}
 		}
-		return nil, fmt.Errorf("user not found by email=%s or phone=%s", matchEmail, matchPhone)
-	}, "Finds user by exactly one of email or phone (oneOf input union).")
+
+		// Create from userInput; assign ID if email-only (task).
+		newUser := &User{
+			Name:            args.Input.UserInput.Name,
+			Email:           args.Input.UserInput.Email,
+			Age:             args.Input.UserInput.Age,
+			ReputationScore: args.Input.UserInput.ReputationScore,
+			IsActive:        args.Input.UserInput.IsActive,
+			Role:            args.Input.UserInput.Role,
+			CreatedAt:       time.Now(),
+		}
+		if idStr != "" {
+			newUser.ID = schemabuilder.ID{Value: idStr}
+		} else {
+			// Email-only: add ID.
+			newUser.ID = schemabuilder.ID{Value: uuid.New().String()}
+		}
+		s.users = append(s.users, newUser)
+		return newUser, nil
+	}, "Creates user by oneOf identifier (id/email) and user fields; errors if exists.")
 }
 
-// RegisterMutation aggregator calls specific mutation reg funcs (per task).
+// RegisterMutation aggregator calls specific mutation reg funcs (per task;
+// createUserByContact replaces old contactBy per improvement).
 // Shared m := sb.Mutation(); appends fields; enables testing individual.
 func RegisterMutation(sb *schemabuilder.Schema, s *Server) {
 	RegisterCreateUserMutation(sb, s)
-	RegisterContactByMutation(sb, s)
+	RegisterCreateUserByContactMutation(sb, s)
 }
