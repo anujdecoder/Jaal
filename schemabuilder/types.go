@@ -80,7 +80,31 @@ type Interface struct{}
 // one-hot struct, i.e. only Asset or Vehicle should be specified, but not both.
 type Union struct{}
 
-var unionType = reflect.TypeOf(Union{})
+// OneOfInput is a special marker struct that can be embedded anonymously into
+// an input struct to denote that the type should be treated as a oneOf input
+// object (@oneOf directive per Oct 2021+ spec for input unions/exclusive fields).
+//
+// This aligns with schemabuilder.Union for outputs (and README.md examples for
+// interfaces/unions via embeds + resolvers), but applies to inputs (e.g., for
+// args in queries/mutations like Create*Input in example/main.go). Proto oneof
+// (in protoc-gen-jaal) can map here for input symmetry.
+//
+// For example:
+//   type ContactInput struct {
+//     schemabuilder.OneOfInput
+//     Email *string
+//     Phone *string
+//   }
+//
+// Then register as usual: schema.InputObject("ContactInput", ContactInput{}).
+// Exactly one field must be provided/non-null in queries (validated in coercion;
+// see input_object.go). Use pointers for optionals per input patterns.
+type OneOfInput struct{}
+
+var unionType     = reflect.TypeOf(Union{})
+// oneOfInputType used by hasOneOfMarkerEmbedded (in input_object.go) to detect
+// @oneOf marker (mirrors unionType; only anon embed supported for consistency).
+var oneOfInputType = reflect.TypeOf(OneOfInput{})
 
 // scalarSpecifiedByURLs maps scalar reflect.Type to its optional @specifiedBy URL
 // (from RegisterScalar; per Oct 2021+ spec for __Type.specifiedByURL).

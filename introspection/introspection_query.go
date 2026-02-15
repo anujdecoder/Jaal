@@ -56,6 +56,16 @@ fragment FullType on __Type {
 	}
 	# specifiedByURL for SCALAR types (e.g., custom DateTime with URL).
 	specifiedByURL
+	# directives for type-level directives (e.g., @oneOf on INPUT_OBJECT for input
+	# unions per spec; also covers scalars/enums if extended). Minimal fields to
+	# keep query light (matches __schema.directives); ensures ComputeSchemaJSON
+	# and tests (introspection_test.go) include @oneOf etc. (like specifiedByURL
+	# and deprecation fields added post-2018).
+	directives {
+		name
+		description
+		locations
+	}
 }
 fragment InputValue on __InputValue {
 	name

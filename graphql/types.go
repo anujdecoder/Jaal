@@ -76,14 +76,20 @@ func (l *List) String() string {
 	return fmt.Sprintf("[%s]", l.Type)
 }
 
-//InputObject defines the object in argument of a query, mutation or subscription
+//InputObject defines the object in argument of a query, mutation or subscription.
 // Per deprecation on input values spec, FieldDeprecations map holds reasons for
 // INPUT_FIELD_DEFINITION (key=field name; empty/no entry = non-deprecated).
-// Matches Scalar.SpecifiedByURL metadata pattern; json- omitted (introspection only).
+// Per OneOf Input Objects spec (Oct 2021+), OneOf bool marks @oneOf directive
+// (for exclusive fields validation in coercion; false/default for existing inputs).
+// Matches Scalar.SpecifiedByURL metadata pattern and Union/Interface structs;
+// json-omitted (introspection only).
 type InputObject struct {
 	Name              string
 	InputFields       map[string]Type
 	FieldDeprecations map[string]string `json:"-"`
+	// OneOf indicates this is a oneOf input object (@oneOf directive on
+	// INPUT_OBJECT; requires exactly one non-null field in input values per spec).
+	OneOf bool `json:"-"`
 }
 
 func (io *InputObject) isType() {}

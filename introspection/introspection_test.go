@@ -263,6 +263,10 @@ func TestIntrospectionForInterface(t *testing.T) {
 						map[string]interface{}{
 							"name": "deprecated",
 						},
+						// @oneOf added for input unions (INPUT_OBJECT; spec compliance; matches oneOfDirective var).
+						map[string]interface{}{
+							"name": "oneOf",
+						},
 					},
 				},
 			},
@@ -923,6 +927,8 @@ func TestIntrospectionForInterface(t *testing.T) {
 						},
 						// expected @deprecated for input values deprecation (spec compliance; matches var).
 						// defaultValue "No longer supported"; InputValue dep fields in args.
+						// (Fixed in deprecatedDirective DefaultValue to remove extra quotes for
+						// JSON/spec match.)
 						map[string]interface{}{
 							"name":        "deprecated",
 							"description": "Marks an element of a GraphQL schema as no longer supported.",
@@ -948,6 +954,17 @@ func TestIntrospectionForInterface(t *testing.T) {
 									},
 								},
 							},
+						},
+						// expected @oneOf for INPUT_OBJECT (input unions; Oct 2021+ spec compliance;
+						// matches oneOfDirective var: no args, INPUT_OBJECT loc, description).
+						// Ensures Test_Directives/Test___Schema pass w/ no break.
+						map[string]interface{}{
+							"name":        "oneOf",
+							"description": "Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one field to be set in a query or mutation).",
+							"locations": []interface{}{
+								"INPUT_OBJECT",
+							},
+							"args": []interface{}{},
 						},
 					},
 				},

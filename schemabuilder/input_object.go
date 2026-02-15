@@ -22,11 +22,27 @@ func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, gr
 		return nil, nil, err
 	}
 
+	// Capture OneOf for closure (set in generateArgParser if OneOfInput marker embedded;
+	// enables @oneOf validation for inline args structs in FieldFunc resolvers, e.g.,
+	// schema.Query().FieldFunc(..., func(..., args struct{ In ContactInput })).
+	// Matches capture in registered case below.
+	oneOf := argType.OneOf
+
 	return &argParser{
 		FromJSON: func(value interface{}, dest reflect.Value) error {
 			asMap, ok := value.(map[string]interface{})
 			if !ok {
 				return errors.New("not an object")
+			}
+
+			// Validate @oneOf first if flagged (exactly 1 non-null; spec input unions;
+			// from validateOneOfInput helper). For arg structs (e.g., README examples'
+			// mutation args). Early check before field fill/unknown check; skips for
+			// !OneOf (BC for existing).
+			if oneOf {
+				if err := validateOneOfInput(argType.Name, asMap); err != nil {
+					return err
+				}
 			}
 
 			for name, field := range fields {
@@ -56,7 +72,14 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 		InputFields:       make(map[string]graphql.Type),
 		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec; from tag parse).
 		// Empty string = non-deprecated (compat); populated below per field.
+		// OneOf for @oneOf INPUT_OBJECT (set below if marker embedded; default false).
 		FieldDeprecations: make(map[string]string),
+	}
+
+	// Detect @oneOf marker early (for arg structs in FieldFunc e.g., args{Input: ContactInput}).
+	// Mirrors union handling; allows anon OneOfInput embed (spec input unions).
+	if hasOneOfMarkerEmbedded(typ) {
+		argType.OneOf = true
 	}
 
 	// Cache type information ahead of time to catch self-reference
@@ -64,6 +87,11 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
+		// Allow anonymous OneOfInput marker embed (for @oneOf; skip like unionType in
+		// output.go/buildUnionStruct). Other anon fields still err (non-breaking).
+		if field.Anonymous && field.Type == oneOfInputType {
+			continue
+		}
 		if field.Anonymous {
 			return nil, nil, fmt.Errorf("bad arg type %s: anonymous fields not supported", typ)
 		}
@@ -145,6 +173,8 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		InputFields:       make(map[string]graphql.Type),
 		// FieldDeprecations default empty (for FieldFunc-based inputs; no tag parse).
 		// Matches generateArgParser for struct inputs.
+		// OneOf for @oneOf INPUT_OBJECT (detected via marker embed below; default false
+		// for BC w/ existing registered inputs like CreateUserInput).
 		FieldDeprecations: make(map[string]string),
 	}
 
@@ -153,10 +183,17 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 	// Ensures INPUT_FIELD_DEFINITION deprecation when used as nested input in args struct
 	// (FieldFunc case; dummy field bypasses parseGraphQLFieldInfo). Matches reflect.go
 	// pattern + bug fix for example/main.go introspection.
+	//
+	// Also detect OneOfInput marker embed for @oneOf (spec input unions; mirrors
+	// structTyp deprecation parse + hasOneOfMarkerEmbedded in arg structs case from
+	// generateArgParser).
 	if obj.Type != nil {
 		structTyp := reflect.TypeOf(obj.Type)
 		if structTyp.Kind() == reflect.Ptr {
 			structTyp = structTyp.Elem()
+		}
+		if hasOneOfMarkerEmbedded(structTyp) {
+			argType.OneOf = true
 		}
 		for i := 0; i < structTyp.NumField(); i++ {
 			f := structTyp.Field(i)
@@ -184,11 +221,25 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		argType.InputFields[name] = fieldArgTyp
 	}
 
+	// Capture OneOf for closure (graphql.InputObject.OneOf from marker detect above;
+	// enables spec validation w/o changing argType ref).
+	oneOf := argType.OneOf
+
 	return &argParser{
 		FromJSON: func(value interface{}, dest reflect.Value) error {
 			asMap, ok := value.(map[string]interface{})
 			if !ok {
 				return errors.New("not an object")
+			}
+
+			// Validate @oneOf first (exactly 1 non-null field per spec for input unions;
+			// from validateOneOfInput in input.go). Runs for registered inputs (e.g.,
+			// ContactInput); before field processing to early-error. Non-breaking:
+			// skips if !oneOf (existing inputs default false).
+			if oneOf {
+				if err := validateOneOfInput(argType.Name, asMap); err != nil {
+					return err
+				}
 			}
 
 			target := reflect.New(typ)
@@ -288,4 +339,18 @@ func (sb *schemaBuilder) generateSliceParser(typ reflect.Type) (*argParser, grap
 		},
 		Type: typ,
 	}, &graphql.List{Type: argType}, nil
+}
+
+// hasOneOfMarkerEmbedded determines if a struct has an embedded schemabuilder.OneOfInput
+// (for @oneOf directive support on INPUT_OBJECT per spec). Mirrors
+// hasUnionMarkerEmbedded in output.go (anon embed only; used for input symmetry
+// w/ unions/interfaces from README.md and protoc oneof hack).
+func hasOneOfMarkerEmbedded(typ reflect.Type) bool {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.Anonymous && field.Type == oneOfInputType {
+			return true
+		}
+	}
+	return false
 }

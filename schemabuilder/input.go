@@ -115,6 +115,33 @@ func wrapWithZeroValue(inner *argParser, fieldArgTyp graphql.Type) (*argParser, 
 	}, fieldArgTyp
 }
 
+// validateOneOfInput ensures exactly one field is present and non-null in the
+// input value map for @oneOf input objects (OneOf Input Objects spec for input
+// unions/exclusive fields). Called from InputObject FromJSON in input_object.go.
+// Non-null: key present and value != nil (absent keys/nulls don't count; matches
+// coercion rules in scalar/enum parsers and spec validation for args).
+// Error msg follows spec style (e.g., "exactly one key must be set..."); objName
+// from graphql.InputObject.Name for user-friendly (like enum errs).
+// Non-breaking: only triggers if .OneOf=true (default false for existing inputs).
+func validateOneOfInput(objName string, value interface{}) error {
+	asMap, ok := value.(map[string]interface{})
+	if !ok {
+		// Fallback; real check in FromJSON.
+		return errors.New("not an object")
+	}
+
+	nonNullCount := 0
+	for _, v := range asMap {
+		if v != nil {
+			nonNullCount++
+		}
+	}
+	if nonNullCount != 1 {
+		return fmt.Errorf("exactly one key must be set and non-null for oneOf input object %q; found %d", objName, nonNullCount)
+	}
+	return nil
+}
+
 // getScalarArgParser creates an arg parser for a scalar type.
 // Returns GraphQL type as Scalar with SpecifiedByURL (for @specifiedBy spec
 // compliance in introspection; e.g., custom DateTime URL). Arg parsing unchanged.

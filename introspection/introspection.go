@@ -19,9 +19,11 @@ type introspection struct {
 
 type DirectiveLocation string
 
-// DirectiveLocation enum per spec, including SCALAR for @specifiedBy (Oct 2021+)
-// and ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION for @deprecated on input values
-// (this task). Avoids name conflicts (e.g., _LOC suffix); stubbed minimally for others.
+// DirectiveLocation enum per spec, including SCALAR for @specifiedBy (Oct 2021+),
+// ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION for @deprecated on input values,
+// and INPUT_OBJECT for @oneOf (input unions; this task). Avoids name conflicts
+// (e.g., _LOC suffix); stubbed minimally for others. Matches TypeKind for
+// INPUT_OBJECT.
 const (
 	QUERY                  DirectiveLocation = "QUERY"
 	MUTATION                                 = "MUTATION"
@@ -33,6 +35,7 @@ const (
 	SCALAR_LOCATION        DirectiveLocation = "SCALAR"                 // for @specifiedBy
 	ARGUMENT_DEFINITION    DirectiveLocation = "ARGUMENT_DEFINITION"    // for input arg deprecation
 	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION" // for input field deprecation
+	INPUT_OBJECT_LOCATION  DirectiveLocation = "INPUT_OBJECT"           // for @oneOf input unions
 )
 
 type TypeKind string
@@ -156,10 +159,12 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
 		"SCALAR":              DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy
-		// New for deprecation on inputs (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec).
-		// Suffix avoids redecl.
+		// New for deprecation on inputs (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec)
+		// and @oneOf (INPUT_OBJECT_LOCATION for input unions; Oct 2021+).
+		// Suffix avoids redecl w/ TypeKind.INPUT_OBJECT.
 		"ARGUMENT_DEFINITION":    DirectiveLocation(ARGUMENT_DEFINITION),
 		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
+		"INPUT_OBJECT":           DirectiveLocation(INPUT_OBJECT_LOCATION), // for @oneOf
 	})
 }
 
@@ -193,6 +198,32 @@ func (s *introspection) registerSchema(schema *schemabuilder.Schema) {
 
 type Type struct {
 	Inner graphql.Type `json:"-"`
+}
+
+// directives returns type-system directives applied to this __Type (e.g.,
+// @oneOf on INPUT_OBJECT for input unions, @specifiedBy on SCALAR).
+// Per spec, __Type.directives: [__Directive!]! ; implemented via switch on
+// Inner (e.g., graphql.InputObject.OneOf flag set in schemabuilder).
+// Currently minimal (oneOf focus; scalars use dedicated specifiedByURL field
+// per prior impls; extensible for future type dirs like repeatable).
+// Returns empty/nil if none (JSON array); matches Schema.directives FieldFunc.
+func (t Type) directives() []Directive {
+	switch inner := t.Inner.(type) {
+	case *graphql.InputObject:
+		// @oneOf for input unions (INPUT_OBJECT only; spec).
+		// oneOfDirective defined below; nil/empty if !OneOf (BC).
+		if inner.OneOf {
+			return []Directive{oneOfDirective}
+		}
+		return nil
+	// Extend for other type dirs e.g.:
+	// case *graphql.Scalar:
+	//   if inner.SpecifiedByURL != "" { return []Directive{specifiedByDirective} }
+	// But omitted to match existing (specifiedByURL separate; no break).
+	default:
+		// Object/Union/Interface/Enum/Scalar (non-oneOf) etc: no dir for now.
+		return nil
+	}
 }
 
 func (s *introspection) registerType(schema *schemabuilder.Schema) {
@@ -250,6 +281,16 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return ""
 		}
+	})
+
+	// directives FieldFunc exposes type-system directives on __Type (per spec;
+	// e.g., @oneOf on INPUT_OBJECT for input unions). Uses Type.directives()
+	// helper (above; switch on graphql.Inner.OneOf etc). Matches Schema.directives,
+	// and patterns for specifiedByURL/deprecation (InputValue/Field).
+	// Added for @oneOf compliance (also benefits scalar/enum if extended).
+	// Returns []Directive (empty if none; JSON array).
+	object.FieldFunc("directives", func(t Type) []Directive {
+		return t.directives()
 	})
 
 	object.FieldFunc("interfaces", func(t Type) []Type {
@@ -619,12 +660,30 @@ var deprecatedDirective = Directive{
 			Type:        Type{Inner: &graphql.Scalar{Type: "String"}},
 			Description: "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
 			// Default per spec; set as *string (nil fallback OK; no resolver override).
+			// Value "No longer supported" (no extra quotes; JSON marshals to proper
+			// "No..." string per spec/UI/tests; fixes test mismatch).
 			// InputValue dep fields default false/nil.
-			DefaultValue:      func() *string { s := "\"No longer supported\""; return &s }(),
+			DefaultValue:      func() *string { s := "No longer supported"; return &s }(),
 			IsDeprecated:      false,
 			DeprecationReason: nil,
 		},
 	},
+}
+
+// oneOfDirective defines the built-in @oneOf (Oct 2021+ spec for INPUT_OBJECT
+// only; enables input unions/exclusive fields). Matches include/skip/specifiedBy/
+// deprecated pattern for __Schema.directives exposure and __Type.directives.
+// No args (per spec); INPUT_OBJECT_LOCATION added to enum above. Used for
+// introspection of oneOf inputs (aligns w/ protoc-gen-jaal oneof).
+// Non-repeatable; informational (validation in coercion not here).
+var oneOfDirective = Directive{
+	Description: "Indicates that an Input Object is a OneOf Input Object (and thus requires exactly one field to be set in a query or mutation).",
+	Locations: []DirectiveLocation{
+		INPUT_OBJECT_LOCATION, // only on input objects per spec for @oneOf
+	},
+	Name: "oneOf",
+	// No args (spec); empty slice (like if no-args dir).
+	Args: []InputValue{},
 }
 
 func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
@@ -643,9 +702,10 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			// include @specifiedBy and @deprecated (input values) in directives list (spec-compliant).
-			// Custom scalars with URL and deprecated inputs/args reflect in introspection.
-			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective},
+			// include @specifiedBy, @deprecated (input values), and @oneOf (input unions/INPUT_OBJECT)
+			// in directives list (spec-compliant for Sept 2025). Custom scalars w/ URL,
+			// deprecated inputs/args, and oneOf inputs reflect in introspection.
+			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective, oneOfDirective},
 		}
 	})
 
