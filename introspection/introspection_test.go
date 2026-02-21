@@ -3,6 +3,7 @@ package introspection_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -254,6 +255,9 @@ func TestIntrospectionForInterface(t *testing.T) {
 						},
 						map[string]interface{}{
 							"name": "skip",
+						},
+						map[string]interface{}{
+							"name": "specifiedBy",
 						},
 					},
 				},
@@ -888,6 +892,30 @@ func TestIntrospectionForInterface(t *testing.T) {
 								},
 							},
 						},
+						map[string]interface{}{
+							"name":        "specifiedBy",
+							"description": "Exposes a URL that specifies the behavior of this scalar.",
+							"locations": []interface{}{
+								"SCALAR",
+							},
+							"args": []interface{}{
+								map[string]interface{}{
+									"name":         "url",
+									"description":  "The URL that specifies the behavior of this scalar.",
+									"defaultValue": nil,
+									"type": map[string]interface{}{
+										"name":          "",
+										"kind":          "NON_NULL",
+										"description":   "",
+										"fields":        []interface{}{},
+										"interfaces":    []interface{}{},
+										"possibleTypes": []interface{}{},
+										"enumValues":    []interface{}{},
+										"inputFields":   []interface{}{},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -1058,4 +1086,177 @@ func (s *node) registerEnumType(schema *schemabuilder.Schema) {
 		"VENDOR":   ProviderType(0),
 		"EMPLOYEE": ProviderType(1),
 	})
+}
+
+// DateTime is a custom scalar type for testing @specifiedBy
+type DateTime struct {
+	Value string
+}
+
+// MarshalJSON implements JSON Marshalling for DateTime
+func (d DateTime) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + d.Value + `"`), nil
+}
+
+func TestSpecifiedByURL(t *testing.T) {
+	// Register a custom scalar with a specifiedBy URL
+	typ := reflect.TypeOf(DateTime{})
+	err := schemabuilder.RegisterScalarWithURL(typ, "DateTime", "https://scalars.graphql.org/andimarek/date-time", func(value interface{}, dest reflect.Value) error {
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("invalid type expected string")
+		}
+		dest.Field(0).SetString(v)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	schema := schemabuilder.NewSchema()
+	query := schema.Query()
+	query.FieldFunc("now", func() DateTime {
+		return DateTime{Value: "2025-01-01T00:00:00Z"}
+	})
+	query.FieldFunc("name", func() string {
+		return "test"
+	})
+	schema.Mutation()
+
+	builtSchema := schema.MustBuild()
+	introspection.AddIntrospectionToSchema(builtSchema)
+	e := graphql.Executor{}
+
+	tests := []struct {
+		name           string
+		query          string
+		expectedResult interface{}
+	}{
+		{
+			name: "specifiedByURL returns URL for custom scalar with URL",
+			query: `
+				{
+					__type(name: "DateTime") {
+						name
+						kind
+						specifiedByURL
+					}
+				}
+			`,
+			expectedResult: map[string]interface{}{
+				"__type": map[string]interface{}{
+					"name":           "DateTime",
+					"kind":           "SCALAR",
+					"specifiedByURL": "https://scalars.graphql.org/andimarek/date-time",
+				},
+			},
+		},
+		{
+			name: "specifiedByURL returns null for built-in scalar String",
+			query: `
+				{
+					__type(name: "String") {
+						name
+						kind
+						specifiedByURL
+					}
+				}
+			`,
+			expectedResult: map[string]interface{}{
+				"__type": map[string]interface{}{
+					"name":           "String",
+					"kind":           "SCALAR",
+					"specifiedByURL": nil,
+				},
+			},
+		},
+		{
+			name: "specifiedByURL returns null for non-scalar type",
+			query: `
+				{
+					__type(name: "Query") {
+						name
+						kind
+						specifiedByURL
+					}
+				}
+			`,
+			expectedResult: map[string]interface{}{
+				"__type": map[string]interface{}{
+					"name":           "Query",
+					"kind":           "OBJECT",
+					"specifiedByURL": nil,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			q, err := graphql.Parse(tt.query, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := graphql.ValidateQuery(context.Background(), builtSchema.Query, q.SelectionSet); err != nil {
+				t.Fatal(err)
+			}
+
+			result, err := e.Execute(context.Background(), builtSchema.Query, nil, q)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			a, _ := json.Marshal(result)
+			b, _ := json.Marshal(tt.expectedResult)
+
+			if !reflect.DeepEqual(a, b) {
+				t.Fatalf("%v Failed\ngot : \n%v\n\n\nexpected : \n%v", tt.name, string(a), string(b))
+			}
+		})
+	}
+}
+
+func TestSpecifiedByURLWithOldRegisterScalar(t *testing.T) {
+	// Verify that scalars registered with the old RegisterScalar API
+	// have specifiedByURL as null (backward compatibility).
+	// We test this by serializing to JSON and checking the value is null.
+	schema := schemabuilder.NewSchema()
+	query := schema.Query()
+	query.FieldFunc("name", func() string {
+		return "test"
+	})
+	schema.Mutation()
+
+	builtSchema := schema.MustBuild()
+	introspection.AddIntrospectionToSchema(builtSchema)
+	e := graphql.Executor{}
+
+	q, err := graphql.Parse(`{ __type(name: "String") { name kind specifiedByURL } }`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := graphql.ValidateQuery(context.Background(), builtSchema.Query, q.SelectionSet); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := e.Execute(context.Background(), builtSchema.Query, nil, q)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Serialize to JSON and back to normalize nil values
+	resultJSON, _ := json.Marshal(result)
+	expectedJSON, _ := json.Marshal(map[string]interface{}{
+		"__type": map[string]interface{}{
+			"name":           "String",
+			"kind":           "SCALAR",
+			"specifiedByURL": nil,
+		},
+	})
+
+	if !reflect.DeepEqual(resultJSON, expectedJSON) {
+		t.Fatalf("expected specifiedByURL to be null for built-in scalar\ngot:      %s\nexpected: %s", string(resultJSON), string(expectedJSON))
+	}
 }

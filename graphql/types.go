@@ -18,8 +18,9 @@ type Type interface {
 // Scalar is a leaf value.  A custom "Unwrapper" can be attached to the scalar
 // so it can have a custom unwrapping (if nil we will use the default unwrapper).
 type Scalar struct {
-	Type      string
-	Unwrapper func(interface{}) (interface{}, error)
+	Type           string
+	Unwrapper      func(interface{}) (interface{}, error)
+	SpecifiedByURL string
 }
 
 func (s *Scalar) isType() {}

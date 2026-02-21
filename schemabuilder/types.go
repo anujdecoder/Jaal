@@ -225,6 +225,27 @@ func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc) error {
 	return nil
 }
 
+// scalarSpecifiedByURLs maps Go reflect.Type to the specifiedBy URL for custom scalars.
+var scalarSpecifiedByURLs = map[reflect.Type]string{}
+
+// RegisterScalarWithURL is used to register custom scalars with a specifiedBy URL.
+// It behaves identically to RegisterScalar but additionally records the scalar
+// specification URL per the GraphQL @specifiedBy directive (Oct 2021 spec).
+func RegisterScalarWithURL(typ reflect.Type, name string, url string, uf UnmarshalFunc) error {
+	if err := RegisterScalar(typ, name, uf); err != nil {
+		return err
+	}
+	if url != "" {
+		scalarSpecifiedByURLs[typ] = url
+	}
+	return nil
+}
+
+// GetScalarSpecifiedByURL returns the specifiedBy URL for a scalar Go type, if registered.
+func GetScalarSpecifiedByURL(typ reflect.Type) string {
+	return scalarSpecifiedByURLs[typ]
+}
+
 // ID is the graphql ID scalar
 type ID struct {
 	Value string

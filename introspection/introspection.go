@@ -20,13 +20,14 @@ type introspection struct {
 type DirectiveLocation string
 
 const (
-	QUERY               DirectiveLocation = "QUERY"
-	MUTATION                              = "MUTATION"
-	FIELD                                 = "FIELD"
-	FRAGMENT_DEFINITION                   = "FRAGMENT_DEFINITION"
-	FRAGMENT_SPREAD                       = "FRAGMENT_SPREAD"
-	INLINE_FRAGMENT                       = "INLINE_FRAGMENT"
-	SUBSCRIPTION                          = "SUBSCRIPTION"
+	QUERY                DirectiveLocation = "QUERY"
+	MUTATION                               = "MUTATION"
+	FIELD                                  = "FIELD"
+	FRAGMENT_DEFINITION                    = "FRAGMENT_DEFINITION"
+	FRAGMENT_SPREAD                        = "FRAGMENT_SPREAD"
+	INLINE_FRAGMENT                        = "INLINE_FRAGMENT"
+	SUBSCRIPTION                           = "SUBSCRIPTION"
+	DIRECTIVE_LOC_SCALAR DirectiveLocation = "SCALAR"
 )
 
 type TypeKind string
@@ -69,11 +70,7 @@ type EnumValue struct {
 	Name              string
 	Description       string
 	IsDeprecated      bool
-	// DeprecationReason as *string with omitempty to omit from introspection JSON
-	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
-	// playground/GraphiQL when no deprecation set). Matches InputValue.DefaultValue
-	// pattern.
-	DeprecationReason *string
+	DeprecationReason string
 }
 
 func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
@@ -87,8 +84,7 @@ func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in EnumValue) bool {
 		return in.IsDeprecated
 	})
-	// Resolver returns *string (nil when no reason) for json omitempty tag.
-	obj.FieldFunc("deprecationReason", func(in EnumValue) *string {
+	obj.FieldFunc("deprecationReason", func(in EnumValue) string {
 		return in.DeprecationReason
 	})
 }
@@ -134,6 +130,7 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
 		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
+		"SCALAR":              DirectiveLocation("SCALAR"),
 	})
 }
 
@@ -226,6 +223,18 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		}
 	})
 
+	object.FieldFunc("specifiedByURL", func(t Type) *string {
+		switch t := t.Inner.(type) {
+		case *graphql.Scalar:
+			if t.SpecifiedByURL != "" {
+				return &t.SpecifiedByURL
+			}
+			return nil
+		default:
+			return nil
+		}
+	})
+
 	object.FieldFunc("interfaces", func(t Type) []Type {
 		switch t := t.Inner.(type) {
 		case *graphql.Object:
@@ -297,18 +306,10 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
-				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
-				// per user query; matches enumValues). Description zero (no support in
-				// graphql.Field).
 				fields = append(fields, field{
-					Name:              name,
-					Description:       "",
-					Type:              Type{Inner: f.Type},
-					Args:              args,
-					IsDeprecated:      false,
-					DeprecationReason: nil,
+					Name: name,
+					Type: Type{Inner: f.Type},
+					Args: args,
 				})
 			}
 		case *graphql.Interface:
@@ -322,18 +323,10 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
 
-				// Explicitly set IsDeprecated: false (jaal does not support deprecation yet;
-				// zero value was causing all fields to appear deprecated in playground
-				// introspection). DeprecationReason: nil (omitted via omitempty/json tag
-				// per user query; matches enumValues). Description zero (no support in
-				// graphql.Field).
 				fields = append(fields, field{
-					Name:              name,
-					Description:       "",
-					Type:              Type{Inner: f.Type},
-					Args:              args,
-					IsDeprecated:      false,
-					DeprecationReason: nil,
+					Name: name,
+					Type: Type{Inner: f.Type},
+					Args: args,
 				})
 			}
 		}
@@ -362,10 +355,8 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			var enumVals []EnumValue
 			for k, v := range t.ReverseMap {
 				val := fmt.Sprintf("%v", k)
-				// DeprecationReason: nil (omitted via omitempty; ensures not marked
-				// deprecated in playground).
 				enumVals = append(enumVals,
-					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: nil})
+					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: ""})
 			}
 			sort.Slice(enumVals, func(i, j int) bool { return enumVals[i].Name < enumVals[j].Name })
 			return enumVals
@@ -380,10 +371,7 @@ type field struct {
 	Args              []InputValue
 	Type              Type
 	IsDeprecated      bool
-	// DeprecationReason as *string with omitempty to omit from introspection JSON
-	// when nil/empty (per spec/UI: prevents fields appearing deprecated in
-	// playground/GraphiQL when no deprecation set; fixes reported issue).
-	DeprecationReason *string `json:"deprecationReason,omitempty"`
+	DeprecationReason string
 }
 
 func (s *introspection) registerField(schema *schemabuilder.Schema) {
@@ -403,8 +391,7 @@ func (s *introspection) registerField(schema *schemabuilder.Schema) {
 	obj.FieldFunc("isDeprecated", func(in field) bool {
 		return in.IsDeprecated
 	})
-	// Resolver returns *string (nil when no reason) for json omitempty tag.
-	obj.FieldFunc("deprecationReason", func(in field) *string {
+	obj.FieldFunc("deprecationReason", func(in field) string {
 		return in.DeprecationReason
 	})
 }
@@ -515,6 +502,21 @@ var skipDirective = Directive{
 	},
 }
 
+var specifiedByDirective = Directive{
+	Name:        "specifiedBy",
+	Description: "Exposes a URL that specifies the behavior of this scalar.",
+	Locations: []DirectiveLocation{
+		DIRECTIVE_LOC_SCALAR,
+	},
+	Args: []InputValue{
+		{
+			Name:        "url",
+			Type:        Type{Inner: &graphql.NonNull{Type: &graphql.Scalar{Type: "String"}}},
+			Description: "The URL that specifies the behavior of this scalar.",
+		},
+	},
+}
+
 func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 	object := schema.Query()
 
@@ -531,7 +533,7 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			Directives:       []Directive{includeDirective, skipDirective},
+			Directives:       []Directive{includeDirective, skipDirective, specifiedByDirective},
 		}
 	})
 

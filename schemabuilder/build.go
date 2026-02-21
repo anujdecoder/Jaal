@@ -36,11 +36,11 @@ func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 	}
 
 	if typeName, ok := getScalar(nodeType); ok {
-		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName}}, nil
+		return &graphql.NonNull{Type: &graphql.Scalar{Type: typeName, SpecifiedByURL: GetScalarSpecifiedByURL(nodeType)}}, nil
 	}
 	if nodeType.Kind() == reflect.Ptr {
 		if typeName, ok := getScalar(nodeType.Elem()); ok {
-			return &graphql.Scalar{Type: typeName}, nil // XXX: prefix typ with "*"
+			return &graphql.Scalar{Type: typeName, SpecifiedByURL: GetScalarSpecifiedByURL(nodeType.Elem())}, nil // XXX: prefix typ with "*"
 		}
 	}
 

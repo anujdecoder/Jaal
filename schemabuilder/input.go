@@ -129,7 +129,7 @@ func getScalarArgParser(typ reflect.Type) (*argParser, graphql.Type, bool) {
 				argParser = &newParser
 			}
 
-			return argParser, &graphql.Scalar{Type: name}, true
+			return argParser, &graphql.Scalar{Type: name, SpecifiedByURL: GetScalarSpecifiedByURL(typ)}, true
 		}
 	}
 	return nil, nil, false

@@ -80,7 +80,7 @@ func NewServer() *Server {
 
 func init() {
 	typ := reflect.TypeOf(time.Time{})
-	schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest reflect.Value) error {
+	schemabuilder.RegisterScalarWithURL(typ, "DateTime", "https://scalars.graphql.org/andimarek/date-time", func(value interface{}, dest reflect.Value) error {
 		v, ok := value.(string)
 		if !ok {
 			return errors.New("invalid type expected string")
