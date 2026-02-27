@@ -123,6 +123,7 @@ type InputObject struct {
 	Type              interface{}
 	Fields            map[string]interface{}
 	FieldDescriptions map[string]string
+	FieldDeprecations map[string]string
 	Description       string // For INPUT_OBJECT desc (spec; pulled in build).
 }
 
@@ -282,6 +283,12 @@ func (io *InputObject) FieldFunc(name string, function interface{}, opts ...Fiel
 			io.FieldDescriptions = map[string]string{}
 		}
 		io.FieldDescriptions[name] = cfg.description
+	}
+	if cfg.deprecated != "" {
+		if io.FieldDeprecations == nil {
+			io.FieldDeprecations = map[string]string{}
+		}
+		io.FieldDeprecations[name] = cfg.deprecated
 	}
 }
 

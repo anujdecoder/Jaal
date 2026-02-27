@@ -33,13 +33,12 @@ const (
 	RoleGuest  Role = "GUEST"
 )
 
-// CreateUserInput for createUser mutation (w/ deprecation tag).
-// graphql/json tags for INPUT_FIELD_DEFINITION spec.
+// CreateUserInput for createUser mutation.
+// Deprecation is now options-based via InputObject.FieldFunc.
 type CreateUserInput struct {
 	Name            string
 	Email           string
-	// Age deprecated example.
-	Age             int32 `json:"age" graphql:",deprecated=Use birthdate instead"`
+	Age             int32
 	ReputationScore float64
 	IsActive        bool
 	Role            Role

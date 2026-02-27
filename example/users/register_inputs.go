@@ -2,7 +2,7 @@ package users
 
 import "go.appointy.com/jaal/schemabuilder"
 
-// RegisterCreateUserInput registers the CreateUserInput (w/ deprecation tag example
+// RegisterCreateUserInput registers the CreateUserInput (w/ deprecation option example
 // for INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION spec support). Specific reg func
 // per task; FieldFunc setup mirrors schemabuilder/input_object.go + main.go original.
 // Description via options (descriptions feature; to graphql.InputObject/__Type.description).
@@ -10,10 +10,10 @@ func RegisterCreateUserInput(sb *schemabuilder.Schema) {
 	input := sb.InputObject("CreateUserInput", CreateUserInput{}, schemabuilder.WithDescription("Input for creating a new user (supports name, email, role etc; age field deprecated for legacy)."))
 
 	// FieldFuncs to populate target struct from input (name/email etc).
-	// Deprecation on Age via tag (reflect.go parse).
+	// Deprecation on Age via options (schemabuilder.Deprecated).
 	input.FieldFunc("name", func(target *CreateUserInput, source string) { target.Name = source }, schemabuilder.FieldDesc("Name of the user."))
 	input.FieldFunc("email", func(target *CreateUserInput, source string) { target.Email = source }, schemabuilder.FieldDesc("Email address."))
-	input.FieldFunc("age", func(target *CreateUserInput, source int32) { target.Age = source }, schemabuilder.FieldDesc("Age in years (deprecated)."))
+	input.FieldFunc("age", func(target *CreateUserInput, source int32) { target.Age = source }, schemabuilder.FieldDesc("Age in years (deprecated)."), schemabuilder.Deprecated("Use birthdate instead"))
 	input.FieldFunc("reputation", func(target *CreateUserInput, source float64) { target.ReputationScore = source }, schemabuilder.FieldDesc("Reputation score."))
 	input.FieldFunc("isActive", func(target *CreateUserInput, source bool) { target.IsActive = source }, schemabuilder.FieldDesc("Whether the user is active."))
 	input.FieldFunc("role", func(target *CreateUserInput, source Role) { target.Role = source }, schemabuilder.FieldDesc("User role."))

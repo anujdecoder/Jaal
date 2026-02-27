@@ -117,19 +117,15 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 			return nil, nil, err
 		}
 
-		// Capture deprecation from tag (for INPUT_FIELD_DEFINITION spec support).
-		// Propagated to introspection via FieldDeprecations; empty = non-dep (compat/stubs).
+		// Description captured from tag for struct-based input fields.
+		// Deprecation is now options-based via InputObject.FieldFunc (removed from tags).
 		fields[fieldInfo.Name] = argField{
-			field:             field,
-			parser:            parser,
-			DeprecationReason: fieldInfo.DeprecationReason,
+			field:  field,
+			parser: parser,
 		}
 		argType.InputFields[fieldInfo.Name] = fieldArgTyp
 		if fieldInfo.Description != "" {
 			argType.InputFieldDescriptions[fieldInfo.Name] = fieldInfo.Description
-		}
-		if fieldInfo.DeprecationReason != "" {
-			argType.FieldDeprecations[fieldInfo.Name] = fieldInfo.DeprecationReason
 		}
 	}
 
@@ -189,15 +185,9 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		Description:       obj.Description,
 	}
 
-	// For registered InputObject from struct (e.g., CreateUserInput with graphql/json tags
-	// for deprecation on fields like age), parse fields to FieldDeprecations.
-	// Ensures INPUT_FIELD_DEFINITION deprecation when used as nested input in args struct
-	// (FieldFunc case; dummy field bypasses parseGraphQLFieldInfo). Matches reflect.go
-	// pattern + bug fix for example/main.go introspection.
-	//
-	// Also detect OneOfInput marker embed for @oneOf (spec input unions; mirrors
-	// structTyp deprecation parse + hasOneOfMarkerEmbedded in arg structs case from
-	// generateArgParser).
+	// For registered InputObject from struct, detect OneOfInput marker embed for @oneOf
+	// (spec input unions; mirrors hasOneOfMarkerEmbedded in arg structs case from
+	// generateArgParser). Deprecation is now options-based via InputObject.FieldFunc.
 	if obj.Type != nil {
 		structTyp := reflect.TypeOf(obj.Type)
 		if structTyp.Kind() == reflect.Ptr {
@@ -205,13 +195,6 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		}
 		if hasOneOfMarkerEmbedded(structTyp) {
 			argType.OneOf = true
-		}
-		for i := 0; i < structTyp.NumField(); i++ {
-			f := structTyp.Field(i)
-			fieldInfo, _ := parseGraphQLFieldInfo(f) // skip err; handled in other paths
-			if !fieldInfo.Skipped && fieldInfo.DeprecationReason != "" {
-				argType.FieldDeprecations[fieldInfo.Name] = fieldInfo.DeprecationReason
-			}
 		}
 	}
 
@@ -232,6 +215,11 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		if obj.FieldDescriptions != nil {
 			if desc, ok := obj.FieldDescriptions[name]; ok {
 				argType.InputFieldDescriptions[name] = desc
+			}
+		}
+		if obj.FieldDeprecations != nil {
+			if depReason, ok := obj.FieldDeprecations[name]; ok {
+				argType.FieldDeprecations[name] = depReason
 			}
 		}
 		argType.InputFields[name] = fieldArgTyp

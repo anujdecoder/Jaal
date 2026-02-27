@@ -165,6 +165,24 @@ Use options to attach descriptions during schema registration:
 
 This options pattern is the recommended way to add descriptions going forward.
 
+### Deprecation Options
+
+Mark fields as deprecated using the `Deprecated` option:
+
+```go
+// Deprecate an output field
+user.FieldFunc("oldField", func(u *User) string {
+    return u.OldField
+}, schemabuilder.Deprecated("Use newField instead"))
+
+// Deprecate an input field
+input.FieldFunc("age", func(target *CreateUserInput, source int32) {
+    target.Age = source
+}, schemabuilder.FieldDesc("Age in years (deprecated)."), schemabuilder.Deprecated("Use birthdate instead"))
+```
+
+Deprecation is now options-based. The previous tag-based approach (`graphql:",deprecated=..."`) has been removed in favor of the cleaner options pattern.
+
 ## Custom Scalar Registration
 
 Jaal supports custom scalars via reflection. Post-June 2018 spec compliance adds optional `specifiedByURL` (4th arg) for `@specifiedBy(url: String!)` directive on SCALAR (exposed in introspection __Type.specifiedByURL; e.g., for DateTime RFC).
