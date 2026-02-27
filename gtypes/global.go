@@ -29,19 +29,19 @@ func RegisterEmpty() {
 
 // RegisterInputFieldMask registers FieldMask as GraphQL Input
 func RegisterInputFieldMask() {
-	input := Schema.InputObject("FieldMaskInput", field_mask.FieldMask{})
+	input := Schema.InputObject("FieldMaskInput", field_mask.FieldMask{}, schemabuilder.WithDescription("Field mask input payload."))
 	input.FieldFunc("paths", func(target *field_mask.FieldMask, source []string) {
 		target.Paths = source
-	})
+	}, schemabuilder.FieldDesc("List of field mask paths."))
 
 }
 
 // RegisterPayloadFieldMask registers FieldMask as GraphQL Input
 func RegisterPayloadFieldMask() {
-	payload := Schema.Object("FieldMask", field_mask.FieldMask{})
+	payload := Schema.Object("FieldMask", field_mask.FieldMask{}, schemabuilder.WithDescription("Field mask payload."))
 	payload.FieldFunc("paths", func(ctx context.Context, in *field_mask.FieldMask) []string {
 		return in.Paths
-	})
+	}, schemabuilder.FieldDesc("List of field mask paths."))
 }
 
 // ModifyFieldMask modifies the paths of recieved field mask to snake case

@@ -79,7 +79,7 @@ func (s *server) registerQuery(schema *schemabuilder.Schema) {
 			}
 		}
 		return nil
-	})
+	}, schemabuilder.FieldDesc("Fetch a channel by ID."))
 }
 
 func (s *server) registerMutation(schema *schemabuilder.Schema) {
@@ -97,7 +97,7 @@ func (s *server) registerMutation(schema *schemabuilder.Schema) {
 		s.channels = append(s.channels, ch)
 		fmt.Println(s)
 		return &ch
-	})
+	}, schemabuilder.FieldDesc("Create a new channel."))
 }
 
 func (s *server) registerSubscription(schema *schemabuilder.Schema) {
@@ -114,7 +114,7 @@ func (s *server) registerSubscription(schema *schemabuilder.Schema) {
 			return &ch, nil
 		}
 		return nil, graphql.ErrNoUpdate
-	})
+	}, schemabuilder.FieldDesc("Subscribe to channel updates by name."))
 
 	obj.FieldFunc("postStream", func(source *schemabuilder.Subscription, args struct {
 		In postStreamReq
@@ -131,63 +131,63 @@ func (s *server) registerSubscription(schema *schemabuilder.Schema) {
 			}, nil
 		}
 		return nil, graphql.ErrNoUpdate
-	})
+	}, schemabuilder.FieldDesc("Subscribe to posts by tag."))
 }
 
 // schema builds the graphql schema.
 func (s *server) schema() *graphql.Schema {
 	builder := schemabuilder.NewSchema()
-	obj := builder.Object("channel", channel{})
+	obj := builder.Object("channel", channel{}, schemabuilder.WithDescription("Channel entity."))
 
 	obj.FieldFunc("id", func(ctx context.Context, in *channel) schemabuilder.ID {
 		return schemabuilder.ID{Value: in.Id}
-	})
+	}, schemabuilder.FieldDesc("Channel identifier."))
 	obj.FieldFunc("name", func(ctx context.Context, in *channel) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Channel name."))
 	obj.FieldFunc("email", func(ctx context.Context, in *channel) string {
 		return in.Email
-	})
+	}, schemabuilder.FieldDesc("Channel email."))
 
-	obj = builder.Object("post", post{})
+	obj = builder.Object("post", post{}, schemabuilder.WithDescription("Post entity."))
 
 	obj.FieldFunc("id", func(ctx context.Context, in *post) schemabuilder.ID {
 		return schemabuilder.ID{Value: in.Id}
-	})
+	}, schemabuilder.FieldDesc("Post identifier."))
 
 	obj.FieldFunc("title", func(ctx context.Context, in *post) string {
 		return in.Title
-	})
+	}, schemabuilder.FieldDesc("Post title."))
 
 	obj.FieldFunc("tag", func(ctx context.Context, in *post) string {
 		return in.Tag
-	})
+	}, schemabuilder.FieldDesc("Post tag."))
 
-	inputObject := builder.InputObject("createChannelReq", createChannelReq{})
+	inputObject := builder.InputObject("createChannelReq", createChannelReq{}, schemabuilder.WithDescription("Input payload for creating a channel."))
 	inputObject.FieldFunc("id", func(in *createChannelReq, id *schemabuilder.ID) {
 		in.Id = id.Value
-	})
+	}, schemabuilder.FieldDesc("Channel ID."))
 	inputObject.FieldFunc("name", func(in *createChannelReq, name *string) {
 		in.Email = *name
-	})
+	}, schemabuilder.FieldDesc("Channel name."))
 	inputObject.FieldFunc("email", func(in *createChannelReq, value *string) {
 		in.Name = *value
-	})
+	}, schemabuilder.FieldDesc("Channel email."))
 
-	inputObject = builder.InputObject("getChannelReq", getChannelReq{})
+	inputObject = builder.InputObject("getChannelReq", getChannelReq{}, schemabuilder.WithDescription("Input payload for fetching a channel."))
 	inputObject.FieldFunc("id", func(in *getChannelReq, id *schemabuilder.ID) {
 		in.Id = id.Value
-	})
+	}, schemabuilder.FieldDesc("Channel ID."))
 
-	inputObject = builder.InputObject("channelStreamReq", channelStreamReq{})
+	inputObject = builder.InputObject("channelStreamReq", channelStreamReq{}, schemabuilder.WithDescription("Input payload for channel stream subscriptions."))
 	inputObject.FieldFunc("name", func(in *channelStreamReq, name *string) {
 		in.Name = *name
-	})
+	}, schemabuilder.FieldDesc("Channel name."))
 
-	inputObject = builder.InputObject("postStreamReq", postStreamReq{})
+	inputObject = builder.InputObject("postStreamReq", postStreamReq{}, schemabuilder.WithDescription("Input payload for post stream subscriptions."))
 	inputObject.FieldFunc("tag", func(in *postStreamReq, tag *string) {
 		in.Tag = *tag
-	})
+	}, schemabuilder.FieldDesc("Post tag."))
 
 	s.registerQuery(builder)
 	s.registerMutation(builder)

@@ -20,8 +20,8 @@ type Type interface {
 // Per post-2018 spec, SpecifiedByURL holds the URL from @specifiedBy directive
 // (informational only for custom scalars; nil/empty for built-ins).
 type Scalar struct {
-	Type          string
-	Unwrapper     func(interface{}) (interface{}, error)
+	Type      string
+	Unwrapper func(interface{}) (interface{}, error)
 	// SpecifiedByURL is the URL specifying scalar behaviour (from @specifiedBy(url: String!)).
 	// Matches spec for __Type.specifiedByURL; empty string treated as null in introspection.
 	SpecifiedByURL string
@@ -90,9 +90,10 @@ func (l *List) String() string {
 // Matches Scalar.SpecifiedByURL, OneOf metadata and Object/Union/Interface structs;
 // json-omitted (introspection only).
 type InputObject struct {
-	Name              string
-	InputFields       map[string]Type
-	FieldDeprecations map[string]string `json:"-"`
+	Name                   string
+	InputFields            map[string]Type
+	InputFieldDescriptions map[string]string `json:"-"`
+	FieldDeprecations      map[string]string `json:"-"`
 	// OneOf indicates this is a oneOf input object (@oneOf directive on
 	// INPUT_OBJECT; requires exactly one non-null field in input values per spec).
 	OneOf bool `json:"-"`

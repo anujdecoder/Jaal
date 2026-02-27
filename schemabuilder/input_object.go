@@ -68,8 +68,9 @@ func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, gr
 func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObject, map[string]argField, error) {
 	fields := make(map[string]argField)
 	argType := &graphql.InputObject{
-		Name:              typ.Name(),
-		InputFields:       make(map[string]graphql.Type),
+		Name:                   typ.Name(),
+		InputFields:            make(map[string]graphql.Type),
+		InputFieldDescriptions: make(map[string]string),
 		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec; from tag parse).
 		// Empty string = non-deprecated (compat); populated below per field.
 		// OneOf for @oneOf INPUT_OBJECT (set below if marker embedded; default false).
@@ -124,6 +125,9 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 			DeprecationReason: fieldInfo.DeprecationReason,
 		}
 		argType.InputFields[fieldInfo.Name] = fieldArgTyp
+		if fieldInfo.Description != "" {
+			argType.InputFieldDescriptions[fieldInfo.Name] = fieldInfo.Description
+		}
 		if fieldInfo.DeprecationReason != "" {
 			argType.FieldDeprecations[fieldInfo.Name] = fieldInfo.DeprecationReason
 		}
@@ -172,15 +176,15 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 	obj := sb.inputObjects[typ]
 	fields := make(map[string]argField)
 	argType := &graphql.InputObject{
-		Name:              obj.Name,
-		InputFields:       make(map[string]graphql.Type),
+		Name:                   obj.Name,
+		InputFields:            make(map[string]graphql.Type),
+		InputFieldDescriptions: make(map[string]string),
 		// FieldDeprecations default empty (for FieldFunc-based inputs; no tag parse).
 		// Matches generateArgParser for struct inputs.
 		// OneOf for @oneOf INPUT_OBJECT (detected via marker embed below; default false
 		// for BC w/ existing registered inputs like CreateUserInput).
-		// Description for INPUT_OBJECT (from schemabuilder.InputObject.Description
-		// setter/variadic param in schema.go; default "" for BC; per descriptions
-		// feature for __Type.description/Playground).
+		// Description for INPUT_OBJECT (from schemabuilder.InputObject.Description;
+		// per descriptions feature for __Type.description/Playground).
 		FieldDeprecations: make(map[string]string),
 		Description:       obj.Description,
 	}
@@ -224,6 +228,11 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		fields[name] = argField{
 			field:  field,
 			parser: parser,
+		}
+		if obj.FieldDescriptions != nil {
+			if desc, ok := obj.FieldDescriptions[name]; ok {
+				argType.InputFieldDescriptions[name] = desc
+			}
 		}
 		argType.InputFields[name] = fieldArgTyp
 	}

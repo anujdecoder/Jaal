@@ -66,27 +66,27 @@ type InputValue struct {
 }
 
 func (s *introspection) registerInputValue(schema *schemabuilder.Schema) {
-	obj := schema.Object("__InputValue", InputValue{})
+	obj := schema.Object("__InputValue", InputValue{}, schemabuilder.WithDescription("Input value metadata for introspection."))
 	obj.FieldFunc("name", func(in InputValue) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Input value name."))
 	obj.FieldFunc("description", func(in InputValue) string {
 		return in.Description
-	})
+	}, schemabuilder.FieldDesc("Input value description."))
 	obj.FieldFunc("type", func(in InputValue) Type {
 		return in.Type
-	})
+	}, schemabuilder.FieldDesc("Input value type."))
 	obj.FieldFunc("defaultValue", func(in InputValue) *string {
 		return in.DefaultValue
-	})
+	}, schemabuilder.FieldDesc("Input value default."))
 	// isDeprecated/deprecationReason for input values deprecation (spec support).
 	// Mirrors EnumValue.registerEnumValue and field.registerField.
 	obj.FieldFunc("isDeprecated", func(in InputValue) bool {
 		return in.IsDeprecated
-	})
+	}, schemabuilder.FieldDesc("Whether the input value is deprecated."))
 	obj.FieldFunc("deprecationReason", func(in InputValue) *string {
 		return in.DeprecationReason
-	})
+	}, schemabuilder.FieldDesc("Reason for deprecating the input value."))
 }
 
 type EnumValue struct {
@@ -101,20 +101,20 @@ type EnumValue struct {
 }
 
 func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
-	obj := schema.Object("__EnumValue", EnumValue{})
+	obj := schema.Object("__EnumValue", EnumValue{}, schemabuilder.WithDescription("Enum value metadata for introspection."))
 	obj.FieldFunc("name", func(in EnumValue) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Enum value name."))
 	obj.FieldFunc("description", func(in EnumValue) string {
 		return in.Description
-	})
+	}, schemabuilder.FieldDesc("Enum value description."))
 	obj.FieldFunc("isDeprecated", func(in EnumValue) bool {
 		return in.IsDeprecated
-	})
+	}, schemabuilder.FieldDesc("Whether the enum value is deprecated."))
 	// Resolver returns *string (nil when no reason) for json omitempty tag.
 	obj.FieldFunc("deprecationReason", func(in EnumValue) *string {
 		return in.DeprecationReason
-	})
+	}, schemabuilder.FieldDesc("Reason for deprecating the enum value."))
 }
 
 type Directive struct {
@@ -125,19 +125,19 @@ type Directive struct {
 }
 
 func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
-	obj := schema.Object("__Directive", Directive{})
+	obj := schema.Object("__Directive", Directive{}, schemabuilder.WithDescription("A directive supported by the schema."))
 	obj.FieldFunc("name", func(in Directive) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Directive name."))
 	obj.FieldFunc("description", func(in Directive) string {
 		return in.Description
-	})
+	}, schemabuilder.FieldDesc("Directive description."))
 	obj.FieldFunc("locations", func(in Directive) []DirectiveLocation {
 		return in.Locations
-	})
+	}, schemabuilder.FieldDesc("Valid directive locations."))
 	obj.FieldFunc("args", func(in Directive) []InputValue {
 		return in.Args
-	})
+	}, schemabuilder.FieldDesc("Directive arguments."))
 
 	// if err := schemabuilder.RegisterScalar(reflect.TypeOf(DirectiveLocation("")), "directiveLocation", func(value interface{}, dest reflect.Value) error {
 	// 	asString, ok := value.(string)
@@ -165,7 +165,7 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"ARGUMENT_DEFINITION":    DirectiveLocation(ARGUMENT_DEFINITION),
 		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
 		"INPUT_OBJECT":           DirectiveLocation(INPUT_OBJECT_LOCATION), // for @oneOf
-	})
+	}, schemabuilder.WithDescription("Directive locations supported by GraphQL."))
 }
 
 type Schema struct {
@@ -177,22 +177,22 @@ type Schema struct {
 }
 
 func (s *introspection) registerSchema(schema *schemabuilder.Schema) {
-	obj := schema.Object("__Schema", Schema{})
+	obj := schema.Object("__Schema", Schema{}, schemabuilder.WithDescription("The root schema definition."))
 	obj.FieldFunc("types", func(in Schema) []Type {
 		return in.Types
-	})
+	}, schemabuilder.FieldDesc("Types available in the schema."))
 	obj.FieldFunc("queryType", func(in Schema) *Type {
 		return in.QueryType
-	})
+	}, schemabuilder.FieldDesc("Root query type."))
 	obj.FieldFunc("mutationType", func(in Schema) *Type {
 		return in.MutationType
-	})
+	}, schemabuilder.FieldDesc("Root mutation type."))
 	obj.FieldFunc("subscriptionType", func(in Schema) *Type {
 		return in.SubscriptionType
-	})
+	}, schemabuilder.FieldDesc("Root subscription type."))
 	obj.FieldFunc("directives", func(in Schema) []Directive {
 		return in.Directives
-	})
+	}, schemabuilder.FieldDesc("Directives supported by the schema."))
 
 }
 
@@ -227,7 +227,7 @@ func (t Type) directives() []Directive {
 }
 
 func (s *introspection) registerType(schema *schemabuilder.Schema) {
-	object := schema.Object("__Type", Type{})
+	object := schema.Object("__Type", Type{}, schemabuilder.WithDescription("GraphQL type metadata for introspection."))
 	object.FieldFunc("kind", func(t Type) TypeKind {
 		switch t.Inner.(type) {
 		case *graphql.Object:
@@ -249,7 +249,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return ""
 		}
-	})
+	}, schemabuilder.FieldDesc("Type kind."))
 
 	object.FieldFunc("name", func(t Type) string {
 		switch t := t.Inner.(type) {
@@ -268,7 +268,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return ""
 		}
-	})
+	}, schemabuilder.FieldDesc("Type name."))
 
 	object.FieldFunc("description", func(t Type) string {
 		switch t := t.Inner.(type) {
@@ -289,7 +289,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return ""
 		}
-	})
+	}, schemabuilder.FieldDesc("Type description."))
 
 	// directives FieldFunc exposes type-system directives on __Type (per spec;
 	// e.g., @oneOf on INPUT_OBJECT for input unions). Uses Type.directives()
@@ -299,7 +299,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 	// Returns []Directive (empty if none; JSON array).
 	object.FieldFunc("directives", func(t Type) []Directive {
 		return t.directives()
-	})
+	}, schemabuilder.FieldDesc("Directives applied to the type."))
 
 	object.FieldFunc("interfaces", func(t Type) []Type {
 		switch t := t.Inner.(type) {
@@ -314,7 +314,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return nil
 		}
-	})
+	}, schemabuilder.FieldDesc("Interfaces implemented by the type."))
 	object.FieldFunc("possibleTypes", func(t Type) []Type {
 		switch t := t.Inner.(type) {
 		case *graphql.Union:
@@ -336,7 +336,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return nil
 		}
-	})
+	}, schemabuilder.FieldDesc("Possible types for unions and interfaces."))
 
 	object.FieldFunc("inputFields", func(t Type) []InputValue {
 		var fields []InputValue
@@ -354,8 +354,13 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 					isDep = true
 					depReason = &d // ptr for omitempty/null in JSON
 				}
+				description := ""
+				if desc, ok := t.InputFieldDescriptions[name]; ok {
+					description = desc
+				}
 				fields = append(fields, InputValue{
 					Name:              name,
+					Description:       description,
 					Type:              Type{Inner: f},
 					IsDeprecated:      isDep,
 					DeprecationReason: depReason,
@@ -365,7 +370,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 
 		sort.Slice(fields, func(i, j int) bool { return fields[i].Name < fields[j].Name })
 		return fields
-	})
+	}, schemabuilder.FieldDesc("Input fields for input objects."))
 
 	object.FieldFunc("fields", func(t Type, args struct {
 		IncludeDeprecated *bool
@@ -437,7 +442,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		sort.Slice(fields, func(i, j int) bool { return fields[i].Name < fields[j].Name })
 
 		return fields
-	})
+	}, schemabuilder.FieldDesc("Fields defined on the type."))
 
 	object.FieldFunc("ofType", func(t Type) *Type {
 		switch t := t.Inner.(type) {
@@ -448,7 +453,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 		default:
 			return nil
 		}
-	})
+	}, schemabuilder.FieldDesc("Wrapped type for list or non-null."))
 
 	object.FieldFunc("enumValues", func(t Type, args struct {
 		IncludeDeprecated *bool
@@ -468,7 +473,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			return enumVals
 		}
 		return nil
-	})
+	}, schemabuilder.FieldDesc("Enum values for enum types."))
 
 	// specifiedByURL returns the URL for SCALAR types set via @specifiedBy(url: String!)
 	// directive (Oct 2021+ spec). Returns *string (nil if unset -> null/omitted in JSON,
@@ -487,7 +492,7 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			// Non-scalars have no specifiedByURL (spec).
 			return nil
 		}
-	})
+	}, schemabuilder.FieldDesc("SpecifiedBy URL for custom scalars."))
 }
 
 type field struct {
@@ -503,26 +508,26 @@ type field struct {
 }
 
 func (s *introspection) registerField(schema *schemabuilder.Schema) {
-	obj := schema.Object("__Field", field{})
+	obj := schema.Object("__Field", field{}, schemabuilder.WithDescription("Field metadata for introspection."))
 	obj.FieldFunc("name", func(in field) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Field name."))
 	obj.FieldFunc("description", func(in field) string {
 		return in.Description
-	})
+	}, schemabuilder.FieldDesc("Field description."))
 	obj.FieldFunc("type", func(in field) Type {
 		return in.Type
-	})
+	}, schemabuilder.FieldDesc("Field type."))
 	obj.FieldFunc("args", func(in field) []InputValue {
 		return in.Args
-	})
+	}, schemabuilder.FieldDesc("Field arguments."))
 	obj.FieldFunc("isDeprecated", func(in field) bool {
 		return in.IsDeprecated
-	})
+	}, schemabuilder.FieldDesc("Whether the field is deprecated."))
 	// Resolver returns *string (nil when no reason) for json omitempty tag.
 	obj.FieldFunc("deprecationReason", func(in field) *string {
 		return in.DeprecationReason
-	})
+	}, schemabuilder.FieldDesc("Reason for deprecating the field."))
 }
 
 func collectTypes(typ graphql.Type, types map[string]graphql.Type) {

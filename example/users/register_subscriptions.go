@@ -16,5 +16,5 @@ func RegisterSubscription(sb *schemabuilder.Schema) {
 	// currentTime: resolver returns func() time.Time (Jaal sub pattern).
 	s.FieldFunc("currentTime", func(ctx context.Context) func() time.Time {
 		return time.Now
-	})
+	}, schemabuilder.FieldDesc("Subscribe to the current server time."))
 }

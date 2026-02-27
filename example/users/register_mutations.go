@@ -32,7 +32,7 @@ func RegisterCreateUserMutation(sb *schemabuilder.Schema, s *Server) {
 		}
 		s.users = append(s.users, newUser)
 		return newUser
-	}, "Creates a new user from input data.")
+	}, schemabuilder.FieldDesc("Creates a new user from input data."))
 }
 
 // RegisterCreateUserByContactMutation registers improved createUserByContact mutation
@@ -84,7 +84,7 @@ func RegisterCreateUserByContactMutation(sb *schemabuilder.Schema, s *Server) {
 		}
 		s.users = append(s.users, newUser)
 		return newUser, nil
-	}, "Creates user by oneOf identifier (id/email) and user fields; errors if exists.")
+	}, schemabuilder.FieldDesc("Creates user by oneOf identifier (id/email) and user fields; errors if exists."))
 }
 
 // RegisterMutation aggregator calls specific mutation reg funcs (per task;

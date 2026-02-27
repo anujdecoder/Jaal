@@ -58,26 +58,26 @@ type CreateCharacterRequest struct {
 }
 
 func RegisterPayload(schema *schemabuilder.Schema) {
-    payload := schema.Object("Character", Character{})
+    payload := schema.Object("Character", Character{}, schemabuilder.WithDescription("A character in the story"))
     payload.FieldFunc("id", func(ctx context.Context, in *Character) *schemabuilder.ID {
         return &schemabuilder.ID{Value: in.Id}
-    })
+    }, schemabuilder.FieldDesc("Unique identifier"))
     payload.FieldFunc("name", func(ctx context.Context, in *Character) string {
         return in.Name
-    })
+    }, schemabuilder.FieldDesc("Character name"))
     payload.FieldFunc("type", func(ctx context.Context, in *Character) Type {
         return in.Type
-    })
+    }, schemabuilder.FieldDesc("Character type"))
 }
 
 func RegisterInput(schema *schemabuilder.Schema) {
-    input := schema.InputObject("CreateCharacterRequest", CreateCharacterRequest{})
+    input := schema.InputObject("CreateCharacterRequest", CreateCharacterRequest{}, schemabuilder.WithDescription("Input payload for creating a character"))
     input.FieldFunc("name", func(target *Character, source string) {
         target.Name = source
-    })
+    }, schemabuilder.FieldDesc("Character name"))
     input.FieldFunc("type", func(target *Character, source Type) {
         target.Type = source
-    })
+    }, schemabuilder.FieldDesc("Character type"))
 }
 
 func RegisterEnum(schema *schemabuilder.Schema) {
@@ -86,7 +86,7 @@ func RegisterEnum(schema *schemabuilder.Schema) {
         "MUGGLE":    Type(0),
         "GOBLIN":    Type(0),
         "HOUSE_ELF": Type(0),
-    })
+    }, schemabuilder.WithDescription("Supported character types"))
 }
 
 func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
@@ -100,11 +100,11 @@ func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
         }
 
         return nil
-    })
+    }, schemabuilder.FieldDesc("Fetch a character by ID"))
 
     schema.Query().FieldFunc("characters", func(ctx context.Context, args struct{}) []*Character {
         return s.Characters
-    })
+    }, schemabuilder.FieldDesc("List all characters"))
 
     schema.Mutation().FieldFunc("createCharacter", func(ctx context.Context, args struct {
         Input *CreateCharacterRequest
@@ -117,7 +117,7 @@ func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
         s.Characters = append(s.Characters, ch)
 
         return ch
-    })
+    }, schemabuilder.FieldDesc("Create a new character"))
 }
 
 func main() {
@@ -154,7 +154,16 @@ Jaal's `HTTPHandler` now supports GraphQL Playground out of the box *without any
 
 Once running, open `http://localhost:9000/graphql` (or your endpoint) in a browser to launch the interactive Playground UI for exploring the schema, testing queries/mutations (including resolvers for objects, interfaces, unions, etc.), and introspection. Client requests (e.g., POST) execute unchanged.
 
-In the above example, we registered all the operations, inputs & payloads on the schema. We also registered the fields we wanted to expose on the schema. FIeld registration allows us to control the way in which a field is exposed. Here we exposed the field Id of Character as the graphQL scalar ID.
+In the above example, we registered all the operations, inputs & payloads on the schema. We also registered the fields we wanted to expose on the schema. Field registration allows us to control the way in which a field is exposed. Here we exposed the field Id of Character as the graphQL scalar ID.
+
+### Description Options
+
+Use options to attach descriptions during schema registration:
+
+- `schemabuilder.WithDescription("...")` for objects, inputs, and enums
+- `schemabuilder.FieldDesc("...")` for fields
+
+This options pattern is the recommended way to add descriptions going forward.
 
 ## Custom Scalar Registration
 
@@ -230,63 +239,63 @@ func (s *server) RegisterInterface(schema *schemabuilder.Schema) {
         }
 
         return nil
-    })
+    }, schemabuilder.FieldDesc("Fetch a magical creature by ID."))
 }
 
 func RegisterPayloads(schema *schemabuilder.Schema) {
-	payload := schema.Object("Dragon", Dragon{})
-	payload.FieldFunc("id", func(ctx context.Context, in *Dragon) schemabuilder.ID {
-		return schemabuilder.ID{Value: in.Id}
-	})
-	payload.FieldFunc("name", func(ctx context.Context, in *Dragon) string {
-		return in.Name
-	})
-	payload.FieldFunc("numberOfLegs", func(ctx context.Context, in *Dragon) int32 {
-		return in.NumberOfLegs
-	})
+    payload := schema.Object("Dragon", Dragon{}, schemabuilder.WithDescription("Dragon payload."))
+    payload.FieldFunc("id", func(ctx context.Context, in *Dragon) schemabuilder.ID {
+        return schemabuilder.ID{Value: in.Id}
+    }, schemabuilder.FieldDesc("Dragon ID."))
+    payload.FieldFunc("name", func(ctx context.Context, in *Dragon) string {
+        return in.Name
+    }, schemabuilder.FieldDesc("Dragon name."))
+    payload.FieldFunc("numberOfLegs", func(ctx context.Context, in *Dragon) int32 {
+        return in.NumberOfLegs
+    }, schemabuilder.FieldDesc("Number of legs."))
 
-	payload = schema.Object("Snake", Snake{})
-	payload.FieldFunc("id", func(ctx context.Context, in *Snake) schemabuilder.ID {
-		return schemabuilder.ID{Value: in.Id}
-	})
-	payload.FieldFunc("name", func(ctx context.Context, in *Snake) string {
-		return in.Name
-	})
-	payload.FieldFunc("lengthInMetres", func(ctx context.Context, in *Snake) float32 {
-		return in.LengthInMetres
-	})
+    payload = schema.Object("Snake", Snake{}, schemabuilder.WithDescription("Snake payload."))
+    payload.FieldFunc("id", func(ctx context.Context, in *Snake) schemabuilder.ID {
+        return schemabuilder.ID{Value: in.Id}
+    }, schemabuilder.FieldDesc("Snake ID."))
+    payload.FieldFunc("name", func(ctx context.Context, in *Snake) string {
+        return in.Name
+    }, schemabuilder.FieldDesc("Snake name."))
+    payload.FieldFunc("lengthInMetres", func(ctx context.Context, in *Snake) float32 {
+        return in.LengthInMetres
+    }, schemabuilder.FieldDesc("Snake length in metres."))
 }
 
 func main() {
-	s := server{
-		dragons: []Dragon{
-			{
-				Id:           "01d823a8-fdcd-4d03-957c-7ca898e2e5fd",
-				Name:         "Norbert",
-				NumberOfLegs: 2,
-			},
-		},
-		snakes: []Snake{
-			{
-				Id:             "2631a997-7a73-45b2-a2fc-ae665a383da1",
-				Name:           "Nagini",
-				LengthInMetres: 1.23,
-			},
-		},
-	}
+    s := server{
+        dragons: []Dragon{
+            {
+                Id:           "01d823a8-fdcd-4d03-957c-7ca898e2e5fd",
+                Name:         "Norbert",
+                NumberOfLegs: 2,
+            },
+        },
+        snakes: []Snake{
+            {
+                Id:             "2631a997-7a73-45b2-a2fc-ae665a383da1",
+                Name:           "Nagini",
+                LengthInMetres: 1.23,
+            },
+        },
+    }
 
-	sb := schemabuilder.NewSchema()
-	RegisterPayloads(sb)
-	s.RegisterInterface(sb)
+    sb := schemabuilder.NewSchema()
+    RegisterPayloads(sb)
+    s.RegisterInterface(sb)
 
-	schema := sb.MustBuild()
-	introspection.AddIntrospectionToSchema(schema)
+    schema := sb.MustBuild()
+    introspection.AddIntrospectionToSchema(schema)
 
-	http.Handle("/graphql", jaal.HTTPHandler(schema))
-	fmt.Println("Running")
-	if err := http.ListenAndServe(":9000", nil); err != nil {
-		panic(err)
-	}
+    http.Handle("/graphql", jaal.HTTPHandler(schema))
+    fmt.Println("Running")
+    if err := http.ListenAndServe(":9000", nil); err != nil {
+        panic(err)
+    }
 }
 ```
 
@@ -326,7 +335,7 @@ func (s *server) RegisterUnion(schema *schemabuilder.Schema) {
         }
 
         return nil
-    })
+    }, schemabuilder.FieldDesc("Fetch a magical creature by ID."))
 }
 ```
 

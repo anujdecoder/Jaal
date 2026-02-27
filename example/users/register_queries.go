@@ -14,13 +14,12 @@ func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
 	q := sb.Query()
 
 	// me: simple resolver returning User (from Server; w/ description for FIELD_DEFINITION).
-	// FieldFunc variadic desc per extension (to graphql.Field/__Field.description/Playground).
 	q.FieldFunc("me", func(ctx context.Context) *User {
 		if len(s.users) > 0 {
 			return s.users[0]
 		}
 		return nil
-	}, "Returns the current authenticated user (if any).")
+	}, schemabuilder.FieldDesc("Returns the current authenticated user (if any)."))
 
 	// user: arg by ID, resolver loop (error if not found; field desc).
 	q.FieldFunc("user", func(ctx context.Context, args struct {
@@ -32,10 +31,10 @@ func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
 			}
 		}
 		return nil, fmt.Errorf("user not found")
-	}, "Fetch user by ID.")
+	}, schemabuilder.FieldDesc("Fetch user by ID."))
 
 	// allUsers: returns slice (field desc).
 	q.FieldFunc("allUsers", func(ctx context.Context) []*User {
 		return s.users
-	}, "Returns all users in the system.")
+	}, schemabuilder.FieldDesc("Returns all users in the system."))
 }

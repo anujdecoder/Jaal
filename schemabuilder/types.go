@@ -23,6 +23,86 @@ type Object struct {
 	key string
 }
 
+// TypeOption configures a GraphQL type during registration.
+type TypeOption func(*typeConfig)
+
+type typeConfig struct {
+	description string
+	deprecated  string
+	directives  []string
+}
+
+// WithDescription sets a description for a registered type.
+func WithDescription(description string) TypeOption {
+	return func(cfg *typeConfig) {
+		cfg.description = description
+	}
+}
+
+// WithDeprecation marks a type as deprecated (reserved for future use).
+func WithDeprecation(reason string) TypeOption {
+	return func(cfg *typeConfig) {
+		cfg.deprecated = reason
+	}
+}
+
+// WithDirective attaches a directive name (reserved for future use).
+func WithDirective(name string) TypeOption {
+	return func(cfg *typeConfig) {
+		cfg.directives = append(cfg.directives, name)
+	}
+}
+
+// FieldOption configures a GraphQL field during registration.
+type FieldOption func(*fieldConfig)
+
+type fieldConfig struct {
+	description string
+	deprecated  string
+	nonNull     bool
+}
+
+// FieldDesc sets a description for a field.
+func FieldDesc(description string) FieldOption {
+	return func(cfg *fieldConfig) {
+		cfg.description = description
+	}
+}
+
+// Deprecated marks a field as deprecated.
+func Deprecated(reason string) FieldOption {
+	return func(cfg *fieldConfig) {
+		cfg.deprecated = reason
+	}
+}
+
+// NonNull marks a field as non-nullable.
+func NonNull() FieldOption {
+	return func(cfg *fieldConfig) {
+		cfg.nonNull = true
+	}
+}
+
+func applyTypeOptions(opts []TypeOption) typeConfig {
+	cfg := typeConfig{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
+}
+
+func applyFieldOptions(opts []FieldOption) fieldConfig {
+	cfg := fieldConfig{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
+}
+
 // Key registers the key field on an object. The field should be specified by the name of the graphql field.
 // For example, for an object User:
 //   type struct User {
@@ -35,15 +115,15 @@ func (s *Object) Key(f string) {
 }
 
 // InputObject represents the input objects passed in queries,mutations and subscriptions.
-// Per descriptions feature, add Description string (set via .Description() setter or
-// InputObject(name, typ, desc...) in schema.go; "" default; propagates to
-// graphql.InputObject.Description for introspection/__Type.description).
+// Per descriptions feature, add Description string (set via WithDescription option);
+// propagates to graphql.InputObject.Description for introspection/__Type.description.
 // Matches Object.Description for non-breaking spec compliance (docs/Playground).
 type InputObject struct {
-	Name        string
-	Type        interface{}
-	Fields      map[string]interface{}
-	Description string // For INPUT_OBJECT desc (spec; pulled in build).
+	Name              string
+	Type              interface{}
+	Fields            map[string]interface{}
+	FieldDescriptions map[string]string
+	Description       string // For INPUT_OBJECT desc (spec; pulled in build).
 }
 
 // A Methods map represents the set of methods exposed on a Object.
@@ -52,9 +132,10 @@ type Methods map[string]*method
 type method struct {
 	MarkedNonNullable bool
 	Fn                interface{}
-	// Description for FIELD_DEFINITION (descriptions feature extension; set via
-	// FieldFunc variadic; "" default; to graphql.Field for __Field.description/Playground).
+	// Description for FIELD_DEFINITION (set via FieldDesc option).
 	Description string
+	// DeprecationReason marks field deprecated (set via Deprecated option).
+	DeprecationReason *string
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
@@ -113,7 +194,8 @@ type Union struct{}
 // see input_object.go). Use pointers for optionals per input patterns.
 type OneOfInput struct{}
 
-var unionType     = reflect.TypeOf(Union{})
+var unionType = reflect.TypeOf(Union{})
+
 // oneOfInputType used by hasOneOfMarkerEmbedded (in input_object.go) to detect
 // @oneOf marker (mirrors unionType; only anon embed supported for consistency).
 var oneOfInputType = reflect.TypeOf(OneOfInput{})
@@ -142,25 +224,21 @@ var scalarSpecifiedByURLs = map[reflect.Type]string{}
 //        return userID, err
 //    })
 //
-// Per descriptions feature extension for FIELD_DEFINITION, optional variadic
-// description (last arg) sets desc (e.g., FieldFunc("name", fn, "Field desc") ;
-// "" default for BC; parsed to graphql.Field.Description; tag parse for struct
-// fields alternative in reflect.go).
-// Mirrors Object(name, typ, desc...) and InputObject.
-func (s *Object) FieldFunc(name string, f interface{}, description ...string) {
+// FieldFunc exposes a field on an object with optional configuration.
+func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 	if s.Methods == nil {
 		s.Methods = make(Methods)
 	}
 
-	desc := ""
-	if len(description) > 0 {
-		desc = description[0]
+	cfg := applyFieldOptions(opts)
+	m := &method{
+		Fn:                f,
+		Description:       cfg.description,
+		MarkedNonNullable: cfg.nonNull,
 	}
-	if len(description) > 1 {
-		panic("at most one description allowed for FieldFunc")
+	if cfg.deprecated != "" {
+		m.DeprecationReason = &cfg.deprecated
 	}
-
-	m := &method{Fn: f, Description: desc}
 
 	if _, ok := s.Methods[name]; ok {
 		panic("duplicate method")
@@ -181,7 +259,7 @@ func (s *Object) FieldFunc(name string, f interface{}, description ...string) {
 // 	target.FirstName = *source
 // })
 // The target variable of the function should be pointer
-func (io *InputObject) FieldFunc(name string, function interface{}) {
+func (io *InputObject) FieldFunc(name string, function interface{}, opts ...FieldOption) {
 	funcTyp := reflect.TypeOf(function)
 
 	if funcTyp.NumIn() != 2 {
@@ -198,11 +276,16 @@ func (io *InputObject) FieldFunc(name string, function interface{}) {
 	}
 
 	io.Fields[name] = function
+	cfg := applyFieldOptions(opts)
+	if cfg.description != "" {
+		if io.FieldDescriptions == nil {
+			io.FieldDescriptions = map[string]string{}
+		}
+		io.FieldDescriptions[name] = cfg.description
+	}
 }
 
-// Setter Description(d) removed for InputObject (to avoid field/method name
-// conflict w/ Description string; use variadic schema.InputObject(name, typ, desc)
-// instead - per Object pattern). Field Description exported for propagation.
+// Field descriptions are exported for propagation to introspection.
 
 // UnmarshalFunc is used to unmarshal scalar value from JSON
 type UnmarshalFunc func(value interface{}, dest reflect.Value) error

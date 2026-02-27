@@ -66,19 +66,19 @@ type CreateCharacterRequest struct {
 }
 
 func RegisterPayload(schema *schemabuilder.Schema) {
-	payload := schema.Object("Character", Character{})
+	payload := schema.Object("Character", Character{}, schemabuilder.WithDescription("A character in the system."))
 	payload.FieldFunc("id", func(ctx context.Context, in *Character) *schemabuilder.ID {
 		return &schemabuilder.ID{Value: in.Id}
-	})
+	}, schemabuilder.FieldDesc("Unique identifier for the character."))
 	payload.FieldFunc("name", func(ctx context.Context, in *Character) string {
 		return in.Name
-	})
+	}, schemabuilder.FieldDesc("Character name."))
 	payload.FieldFunc("type", func(ctx context.Context, in *Character) Type {
 		return in.Type
-	})
+	}, schemabuilder.FieldDesc("Character type."))
 	payload.FieldFunc("dateOfBirth", func(ctx context.Context, in *Character) time.Time {
 		return in.DateOfBirth
-	})
+	}, schemabuilder.FieldDesc("Birth date of the character."))
 	payload.FieldFunc("metadata", func(ctx context.Context, in *Character) (*schemabuilder.Map, error) {
 		data, err := json.Marshal(in.Metadata)
 		if err != nil {
@@ -86,20 +86,20 @@ func RegisterPayload(schema *schemabuilder.Schema) {
 		}
 
 		return &schemabuilder.Map{Value: string(data)}, nil
-	})
+	}, schemabuilder.FieldDesc("Additional metadata for the character."))
 }
 
 func RegisterInput(schema *schemabuilder.Schema) {
-	input := schema.InputObject("CreateCharacterRequest", CreateCharacterRequest{})
+	input := schema.InputObject("CreateCharacterRequest", CreateCharacterRequest{}, schemabuilder.WithDescription("Input payload for creating a character."))
 	input.FieldFunc("name", func(target *CreateCharacterRequest, source string) {
 		target.Name = source
-	})
+	}, schemabuilder.FieldDesc("Name of the character."))
 	input.FieldFunc("type", func(target *CreateCharacterRequest, source Type) {
 		target.Type = source
-	})
+	}, schemabuilder.FieldDesc("Type of the character."))
 	input.FieldFunc("dateOfBirth", func(target *CreateCharacterRequest, source time.Time) {
 		target.DateOfBirth = source
-	})
+	}, schemabuilder.FieldDesc("Birth date of the character."))
 	input.FieldFunc("metadata", func(target *CreateCharacterRequest, source schemabuilder.Map) error {
 		v := source.Value
 
@@ -115,7 +115,7 @@ func RegisterInput(schema *schemabuilder.Schema) {
 
 		target.Metadata = data
 		return nil
-	})
+	}, schemabuilder.FieldDesc("Metadata values for the character."))
 }
 
 func RegisterEnum(schema *schemabuilder.Schema) {
@@ -124,7 +124,7 @@ func RegisterEnum(schema *schemabuilder.Schema) {
 		"MUGGLE":    Type(1),
 		"GOBLIN":    Type(2),
 		"HOUSE_ELF": Type(3),
-	})
+	}, schemabuilder.WithDescription("Supported character types."))
 }
 
 func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
@@ -138,11 +138,11 @@ func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
 		}
 
 		return nil
-	})
+	}, schemabuilder.FieldDesc("Fetch a character by ID."))
 
 	schema.Query().FieldFunc("characters", func(ctx context.Context, args struct{}) []*Character {
 		return s.Characters
-	})
+	}, schemabuilder.FieldDesc("List all characters."))
 
 	schema.Mutation().FieldFunc("createCharacter", func(ctx context.Context, args struct {
 		Input *CreateCharacterRequest
@@ -157,7 +157,7 @@ func (s *Server) RegisterOperations(schema *schemabuilder.Schema) {
 		s.Characters = append(s.Characters, ch)
 
 		return ch
-	})
+	}, schemabuilder.FieldDesc("Create a new character."))
 }
 
 func main() {
