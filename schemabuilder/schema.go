@@ -258,11 +258,11 @@ func copyObject(object *Object) *Object {
 		Name:        object.Name,
 		Description: object.Description,
 		Type:        object.Type,
-		Methods:     make(Methods, len(object.Methods)),
+		methods:     make(methods, len(object.methods)),
 	}
 
-	for name, m := range object.Methods {
-		copy.Methods[name] = &method{
+	for name, m := range object.methods {
+		copy.methods[name] = &method{
 			MarkedNonNullable: m.MarkedNonNullable,
 			Fn:                m.Fn,
 			Description:       m.Description,
@@ -276,12 +276,14 @@ func copyObject(object *Object) *Object {
 func copyInputObject(input *InputObject) *InputObject {
 	// Copy Description for input objects (descriptions feature; propagates to
 	// graphql.InputObject; BC w/ no desc).
+	// Copy IsOneOf flag for @oneOf input objects (set via MarkOneOf() method).
 	copy := &InputObject{
 		Name:              input.Name,
 		Type:              input.Type,
 		Fields:            make(map[string]interface{}),
 		FieldDescriptions: make(map[string]string),
 		Description:       input.Description,
+		IsOneOf:           input.IsOneOf,
 	}
 
 	for name, field := range input.Fields {

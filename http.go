@@ -2,7 +2,8 @@ package jaal
 
 import (
 	"context"
-	_ "embed" // for GraphiQL assets inlined in HTML (no runtime FS/CDN)
+	_ "embed" // for GraphQL Playground assets inlined in HTML (no runtime FS/CDN)
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +21,10 @@ type handlerOptions struct {
 
 // HTTPHandler implements the handler required for executing the graphql queries and mutations.
 // For GET requests to /graphql, it serves the embedded GraphQL Playground UI
-// (index.html + assets like CSS/JS/favicon from FS; see serveEmbeddedPlayground).
-// This allows interactive exploration (no separate handler/mount/redirect/CDN;
-// same route only, no example changes). For POST requests from clients, it
-// executes the query as before (preserving compatibility with examples,
-// README.md, and existing clients). Other methods return an error.
+// (HTML + CSS/JS/favicon inlined; no runtime filesystem or CDN). This allows
+// interactive exploration on the same route without extra handlers. For POST
+// requests from clients, it executes the query as before (preserving
+// compatibility with examples and existing clients). Other methods return an error.
 // The playground assets are embedded via go:embed (stdlib only), following the
 // minimalistic pattern of the codebase.
 func HTTPHandler(schema *graphql.Schema, opts ...HandlerOption) http.Handler {
@@ -70,32 +70,28 @@ type httpResponse struct {
 	Errors []*jerrors.Error `json:"errors"`
 }
 
-// Embedded GraphiQL assets (downloaded from CDN once during development; inlined
-// in HTML at runtime for no external loads/CDN/MIME/path issues). This matches
-// the provided example code for reliable browser rendering (single HTML response).
-//go:embed playground/react.production.min.js
-var reactJS []byte
+// Embedded GraphQL Playground assets (downloaded once during development; inlined
+// in HTML at runtime for no external loads/CDN/MIME/path issues).
+//go:embed playground/graphql-playground-middleware.js
+var playgroundJS []byte
 
-//go:embed playground/react-dom.production.min.js
-var reactDOMJS []byte
+//go:embed playground/graphql-playground-middleware.css
+var playgroundCSS []byte
 
-//go:embed playground/graphiql.min.js
-var graphiqlJS []byte
-
-//go:embed playground/graphiql.min.css
-var graphiqlCSS []byte
+//go:embed playground/graphql-playground-favicon.png
+var playgroundFavicon []byte
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Serve the GraphiQL playground UI on GET (and HEAD for completeness, e.g.
+	// Serve the GraphQL Playground UI on GET (and HEAD for completeness, e.g.
 	// curl -I) requests. This makes visiting the /graphql URL in a browser show
 	// the interactive playground with all assets inlined in a single HTML
 	// response (embedded; no CDN/files/MIME/path issues). Uses r.URL.Path as
 	// the GraphQL endpoint (self-referential). POST requests are handled as
-	// GraphQL queries below. Matches the provided example code.
+	// GraphQL queries below.
 	// HEAD support follows common HTTP practices for UI endpoints.
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		// Title "Jaal GraphiQL Playground"; endpoint = current path (e.g., /graphql).
-		servePlayground(w, "Jaal GraphiQL Playground", r.URL.Path)
+		// Title "Jaal GraphQL Playground"; endpoint = current path (e.g., /graphql).
+		servePlayground(w, "Jaal GraphQL Playground", r.URL.Path)
 		return
 	}
 
@@ -184,80 +180,44 @@ func addVariables(ctx context.Context, v map[string]interface{}) context.Context
 	return context.WithValue(ctx, graphqlVariableKey, v)
 }
 
-// playgroundHTMLTemplate is the GraphiQL playground HTML shell (the %s placeholders
-// are for the title, CSS, 3 JS files, and endpoint; assets are inlined from embeds
-// at runtime to avoid any CDN/external loads or separate files/MIME/path issues).
-// This matches the provided example code exactly for reliable browser rendering
-// (single HTML response on GET to /graphql).
+// playgroundHTMLTemplate is the GraphQL Playground HTML shell (the %s placeholders
+// are for the title, favicon, CSS, JS, and endpoint). Assets are inlined from
+// embeds at runtime to avoid any CDN/external loads or separate files/MIME/path issues.
 const playgroundHTMLTemplate = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="user-scalable=no,initial-scale=1,minimum-scale=1,maximum-scale=1,minimal-ui">
     <title>%s</title>
-    <style>
-        body {
-            height: 100%%;
-            margin: 0;
-            overflow: hidden;
-        }
-        #graphiql {
-            height: 100vh;
-        }
-    </style>
+    <link rel="icon" type="image/png" href="%s" />
     <style>
 %s
     </style>
-    <script>
-%s
-    </script>
-    <script>
-%s
-    </script>
-    <script>
-%s
-    </script>
 </head>
 <body>
-    <div id="graphiql">Loading...</div>
+    <div id="root">
+        <style>html{font-family:"Open Sans",sans-serif;overflow:hidden}body{margin:0;background:#172a3a}.playgroundIn{-webkit-animation:playgroundIn .5s ease-out forwards;animation:playgroundIn .5s ease-out forwards}@-webkit-keyframes playgroundIn{from{opacity:0;-webkit-transform:translateY(10px);-ms-transform:translateY(10px);transform:translateY(10px)}to{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}}@keyframes playgroundIn{from{opacity:0;-webkit-transform:translateY(10px);-ms-transform:translateY(10px);transform:translateY(10px)}to{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}}</style>
+        <style>.fadeOut{-webkit-animation:fadeOut .5s ease-out forwards;animation:fadeOut .5s ease-out forwards}@-webkit-keyframes fadeIn{from{opacity:0;-webkit-transform:translateY(-10px);-ms-transform:translateY(-10px);transform:translateY(-10px)}to{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}}@keyframes fadeIn{from{opacity:0;-webkit-transform:translateY(-10px);-ms-transform:translateY(-10px);transform:translateY(-10px)}to{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}}@-webkit-keyframes fadeOut{from{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}to{opacity:0;-webkit-transform:translateY(-10px);-ms-transform:translateY(-10px);transform:translateY(-10px)}}@keyframes fadeOut{from{opacity:1;-webkit-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0)}to{opacity:0;-webkit-transform:translateY(-10px);-ms-transform:translateY(-10px);transform:translateY(-10px)}}@-webkit-keyframes appear{from{opacity:0}to{opacity:1}}@keyframes appear{from{opacity:0}to{opacity:1}}</style>
+        <div class="playgroundIn" id="loading">Loading GraphQL Playground</div>
+    </div>
     <script>
-      // The GraphQL fetcher posts to the graphqlEndpoint (self-referential to
-      // the current /graphql route for queries/mutations).
-      function graphQLFetcher(graphQLParams) {
-        return fetch(
-          '%s',
-          {
-            method: 'post',
-            headers: {
-              Accept: 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(graphQLParams),
-            credentials: 'omit',
-          },
-        ).then(function (response) {
-          return response.json().catch(function () {
-            return response.text();
-          });
+%s
+    </script>
+    <script>
+        GraphQLPlayground.init(document.getElementById('root'), {
+            endpoint: '%s'
         });
-      }
-
-      ReactDOM.render(
-        React.createElement(GraphiQL, {
-          fetcher: graphQLFetcher,
-        }),
-        document.getElementById('graphiql'),
-      );
     </script>
 </body>
 </html>`
 
-// servePlayground writes the GraphiQL HTML with all CSS/JS assets inlined from
+// servePlayground writes the GraphQL Playground HTML with all CSS/JS assets inlined from
 // embeds (no CDN, no separate files). Used by the automatic GET/HEAD handling
 // in HTTPHandler (self-contained on /graphql route). Casts []byte embeds to
 // string for fmt.Sprintf. This ensures no MIME/404/render errors.
 func servePlayground(w http.ResponseWriter, title, graphqlEndpoint string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Inline embedded assets directly into <style>/<script> tags (per example).
-	html := fmt.Sprintf(playgroundHTMLTemplate, title, string(graphiqlCSS), string(reactJS), string(reactDOMJS), string(graphiqlJS), graphqlEndpoint)
+	favicon := fmt.Sprintf("data:image/png;base64,%s", base64.StdEncoding.EncodeToString(playgroundFavicon))
+	html := fmt.Sprintf(playgroundHTMLTemplate, title, favicon, string(playgroundCSS), string(playgroundJS), graphqlEndpoint)
 	_, _ = w.Write([]byte(html))
 }

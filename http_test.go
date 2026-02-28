@@ -29,10 +29,10 @@ func testHTTPRequest(req *http.Request) *httptest.ResponseRecorder {
 }
 
 // TestHTTPPlaygroundOnGet verifies that GET requests to /graphql serve the
-// GraphiQL Playground UI with all CSS/JS assets inlined in a single HTML
+// GraphQL Playground UI with all CSS/JS assets inlined in a single HTML
 // response (embedded via go:embed; no CDN/files/MIME/path/404 issues).
 // Matches the provided example code for reliable rendering. Checks status,
-// content-type, and key snippets (title, GraphiQL, endpoint) while preserving
+// content-type, and key snippets (title, endpoint) while preserving
 // test suite and no regressions for POST/query execution elsewhere.
 func TestHTTPPlaygroundOnGet(t *testing.T) {
 	req, err := http.NewRequest("GET", "/graphql", nil)
@@ -51,14 +51,16 @@ func TestHTTPPlaygroundOnGet(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "<title>Jaal GraphiQL Playground</title>") {
-		t.Errorf("expected GraphiQL HTML title, got: %s", body)
+	if !strings.Contains(body, "<title>Jaal GraphQL Playground</title>") {
+		t.Errorf("expected GraphQL Playground HTML title, got: %s", body)
 	}
-	if !strings.Contains(body, "GraphiQL") {
-		t.Errorf("expected GraphiQL in HTML")
+	if !strings.Contains(body, "GraphQL Playground") {
+		t.Errorf("expected GraphQL Playground in HTML")
 	}
-	if !strings.Contains(body, `'/graphql'`) { // self-referential endpoint after sprintf
-		t.Errorf("expected /graphql endpoint in fetcher")
+	if !strings.Contains(body, `GraphQLPlayground.init(document.getElementById('root'), {
+            endpoint: '/graphql'
+        })`) { // self-referential endpoint in init call
+		t.Errorf("expected /graphql endpoint in init call")
 	}
 }
 

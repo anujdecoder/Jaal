@@ -20,12 +20,12 @@ func RegisterCreateUserInput(sb *schemabuilder.Schema) {
 }
 
 // RegisterIdentifierInput registers the oneOf input for identifier (id or email;
-// embed OneOfInput for @oneOf spec input union; exactly one field). Specific func
-// per task; mirrors RegisterCreateUserInput + README/oneOf.
+// exactly one field). Uses MarkOneOf() method to mark as @oneOf input.
 func RegisterIdentifierInput(sb *schemabuilder.Schema) {
-	// INPUT_OBJECT w/ marker; OneOf=true via detect; FieldFunc for id/email.
+	// INPUT_OBJECT w/ MarkOneOf() method for @oneOf; FieldFunc for id/email.
 	// Description for Playground/__Type.
 	identifierInput := sb.InputObject("IdentifierInput", IdentifierInput{}, schemabuilder.WithDescription("OneOf identifier: exactly one of ID or email (spec input union)."))
+	identifierInput.MarkOneOf()
 	identifierInput.FieldFunc("id", func(target *IdentifierInput, source *schemabuilder.ID) { target.ID = source }, schemabuilder.FieldDesc("User ID to identify an existing user."))
 	identifierInput.FieldFunc("email", func(target *IdentifierInput, source *string) { target.Email = source }, schemabuilder.FieldDesc("Email address to identify an existing user."))
 }

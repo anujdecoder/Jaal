@@ -18,7 +18,7 @@ type Object struct {
 	Name        string // Optional, defaults to Type's name.
 	Description string
 	Type        interface{}
-	Methods     Methods // Deprecated, use FieldFunc instead.
+	methods     methods
 
 	key string
 }
@@ -115,9 +115,9 @@ func (s *Object) Key(f string) {
 }
 
 // InputObject represents the input objects passed in queries,mutations and subscriptions.
-// Per descriptions feature, add Description string (set via WithDescription option);
-// propagates to graphql.InputObject.Description for introspection/__Type.description.
-// Matches Object.Description for non-breaking spec compliance (docs/Playground).
+// Description is set via WithDescription and propagates to graphql.InputObject.Description.
+// Matches Object.Description for spec compliance.
+// IsOneOf marks this as a oneOf input (@oneOf directive; exactly one field must be provided).
 type InputObject struct {
 	Name              string
 	Type              interface{}
@@ -125,10 +125,27 @@ type InputObject struct {
 	FieldDescriptions map[string]string
 	FieldDeprecations map[string]string
 	Description       string // For INPUT_OBJECT desc (spec; pulled in build).
+	IsOneOf           bool   // For @oneOf INPUT_OBJECT (set via MarkOneOf() method).
 }
 
-// A Methods map represents the set of methods exposed on a Object.
-type Methods map[string]*method
+// MarkOneOf marks this input object as a oneOf input (@oneOf directive).
+// Exactly one field must be provided/non-null in queries (enforced during input coercion).
+//
+// Example:
+//
+//	type IdentifierInput struct {
+//	    ID    *schemabuilder.ID
+//	    Email *string
+//	}
+//
+//	input := sb.InputObject("IdentifierInput", IdentifierInput{})
+//	input.MarkOneOf()
+func (io *InputObject) MarkOneOf() {
+	io.IsOneOf = true
+}
+
+// A methods map represents the set of methods exposed on a Object.
+type methods map[string]*method
 
 type method struct {
 	MarkedNonNullable bool
@@ -174,32 +191,7 @@ type Interface struct{}
 // one-hot struct, i.e. only Asset or Vehicle should be specified, but not both.
 type Union struct{}
 
-// OneOfInput is a special marker struct that can be embedded anonymously into
-// an input struct to denote that the type should be treated as a oneOf input
-// object (@oneOf directive per Oct 2021+ spec for input unions/exclusive fields).
-//
-// This aligns with schemabuilder.Union for outputs (and README.md examples for
-// interfaces/unions via embeds + resolvers), but applies to inputs (e.g., for
-// args in queries/mutations like Create*Input in example/main.go). Proto oneof
-// (in protoc-gen-jaal) can map here for input symmetry.
-//
-// For example:
-//   type ContactInput struct {
-//     schemabuilder.OneOfInput
-//     Email *string
-//     Phone *string
-//   }
-//
-// Then register as usual: schema.InputObject("ContactInput", ContactInput{}).
-// Exactly one field must be provided/non-null in queries (validated in coercion;
-// see input_object.go). Use pointers for optionals per input patterns.
-type OneOfInput struct{}
-
 var unionType = reflect.TypeOf(Union{})
-
-// oneOfInputType used by hasOneOfMarkerEmbedded (in input_object.go) to detect
-// @oneOf marker (mirrors unionType; only anon embed supported for consistency).
-var oneOfInputType = reflect.TypeOf(OneOfInput{})
 
 // scalarSpecifiedByURLs maps scalar reflect.Type to its optional @specifiedBy URL
 // (from RegisterScalar; per Oct 2021+ spec for __Type.specifiedByURL).
@@ -227,8 +219,8 @@ var scalarSpecifiedByURLs = map[reflect.Type]string{}
 //
 // FieldFunc exposes a field on an object with optional configuration.
 func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
-	if s.Methods == nil {
-		s.Methods = make(Methods)
+	if s.methods == nil {
+		s.methods = make(methods)
 	}
 
 	cfg := applyFieldOptions(opts)
@@ -241,10 +233,10 @@ func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 		m.DeprecationReason = &cfg.deprecated
 	}
 
-	if _, ok := s.Methods[name]; ok {
+	if _, ok := s.methods[name]; ok {
 		panic("duplicate method")
 	}
-	s.Methods[name] = m
+	s.methods[name] = m
 }
 
 // FieldFunc is used to expose the fields of an input object and determine the method to fill it
@@ -294,11 +286,36 @@ func (io *InputObject) FieldFunc(name string, function interface{}, opts ...Fiel
 
 // Field descriptions are exported for propagation to introspection.
 
+// ScalarOption configures a GraphQL scalar during registration.
+type ScalarOption func(*scalarConfig)
+
+type scalarConfig struct {
+	specifiedByURL string
+}
+
+// WithSpecifiedBy sets the @specifiedBy(url: String!) directive for a scalar
+// (post-2018 spec; informational only).
+func WithSpecifiedBy(url string) ScalarOption {
+	return func(cfg *scalarConfig) {
+		cfg.specifiedByURL = url
+	}
+}
+
+func applyScalarOptions(opts []ScalarOption) scalarConfig {
+	cfg := scalarConfig{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
+}
+
 // UnmarshalFunc is used to unmarshal scalar value from JSON
 type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 
-// RegisterScalar is used to register custom scalars. The optional specifiedByURL
-// param (last arg) sets the @specifiedBy(url: String!) per post-2018 spec for
+// RegisterScalar is used to register custom scalars. The optional WithSpecifiedBy
+// option sets the @specifiedBy(url: String!) per post-2018 spec for
 // documentation in introspection (__Type.specifiedByURL). If omitted, defaults
 // to "" (null in output; for built-ins/customs without external spec).
 //
@@ -323,11 +340,11 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 //
 //		d.Field(0).SetString(v)
 //		return nil
-//	}, "https://..."); err != nil {
+//	}, schemabuilder.WithSpecifiedBy("https://...")); err != nil {
 //		panic(err)
 //	}
 //}
-func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, specifiedByURL ...string) error {
+func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, opts ...ScalarOption) error {
 	if typ.Kind() == reflect.Ptr {
 		return errors.New("type should not be of pointer type")
 	}
@@ -369,14 +386,12 @@ func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, specifiedBy
 		}
 	}
 
-	// Store scalar name and (optional) @specifiedBy URL. Variadic ensures BC with pre-2018 calls.
+	// Store scalar name and (optional) @specifiedBy URL.
 	// URL defaults to "" if omitted (null in introspection for built-ins).
 	scalars[typ] = name
-	if len(specifiedByURL) > 1 {
-		return errors.New("at most one specifiedByURL allowed")
-	}
-	if len(specifiedByURL) == 1 {
-		scalarSpecifiedByURLs[typ] = specifiedByURL[0]
+	cfg := applyScalarOptions(opts)
+	if cfg.specifiedByURL != "" {
+		scalarSpecifiedByURLs[typ] = cfg.specifiedByURL
 	}
 	scalarArgParsers[typ] = &argParser{
 		FromJSON: uf,
@@ -407,7 +422,7 @@ func typesIdenticalOrScalarAliases(a, b reflect.Type) bool {
 }
 
 // getScalarSpecifiedByURL returns the optional @specifiedBy URL for the scalar type
-// (registered via RegisterScalar's variadic arg; post-2018 spec). Returns "" if unset.
+// (registered via RegisterScalar's WithSpecifiedBy option; post-2018 spec). Returns "" if unset.
 // Used in build.go to attach to graphql.Scalar. Follows getScalar pattern (in build.go).
 // Handles direct types (aliases routed via getScalar's typesIdenticalOrScalarAliases upstream).
 func getScalarSpecifiedByURL(typ reflect.Type) string {

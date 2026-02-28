@@ -44,21 +44,18 @@ type CreateUserInput struct {
 	Role            Role
 }
 
-// ContactByInput for contactBy mutation (oneOf input union demo; embed
-// OneOfInput marker for @oneOf spec/exclusive fields).
-// (Deprecated; replaced by CreateUserByContactInput below.)
+// ContactByInput for contactBy mutation (oneOf input union demo).
+// Exactly one of Email or Phone must be provided (enforced by @oneOf directive).
+// Note: This type is deprecated; replaced by CreateUserByContactInput below.
 type ContactByInput struct {
-	// schemabuilder.OneOfInput for INPUT_OBJECT @oneOf (exclusive email/phone).
-	schemabuilder.OneOfInput
-	// Ptr fields optional; exactly one non-null enforced.
+	// Ptr fields optional; exactly one non-null enforced by @oneOf.
 	Email *string
 	Phone *string
 }
 
 // IdentifierInput oneOf for id or email (exclusive; used in createUserByContact).
-// Embed OneOfInput marker for @oneOf (spec input union).
+// Exactly one of ID or Email must be provided (enforced by @oneOf directive).
 type IdentifierInput struct {
-	schemabuilder.OneOfInput
 	// Ptr optional; exactly one enforced.
 	ID    *schemabuilder.ID
 	Email *string

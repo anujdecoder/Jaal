@@ -31,7 +31,7 @@ func RegisterScalars(sb *schemabuilder.Schema) {
 		dest.Set(reflect.ValueOf(t))
 
 		return nil
-	}, "https://tools.ietf.org/html/rfc3339"); err != nil {
+	}, schemabuilder.WithSpecifiedBy("https://tools.ietf.org/html/rfc3339")); err != nil {
 		// Panic on reg fail (pattern from schemabuilder scalar reg).
 		panic(err)
 	}

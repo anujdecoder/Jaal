@@ -33,7 +33,7 @@ func init() {
 		dest.Set(reflect.ValueOf(t))
 
 		return nil
-	}, "https://tools.ietf.org/html/rfc3339")
+	}, schemabuilder.WithSpecifiedBy("https://tools.ietf.org/html/rfc3339"))
 
 }
 

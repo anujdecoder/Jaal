@@ -13,7 +13,7 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 * Union Support
 * In build include and skip directives
 * Protocol buffers API generation
-* Out-of-the-box GraphQL Playground (embedded, no CDN): `jaal.HTTPHandler` serves full UI + assets on the *same /graphql route* (GET for interactive explorer; POST for queries). No separate handler, redirect, mount, or example change required.
+* Out-of-the-box GraphQL Playground (embedded, no CDN): `jaal.HTTPHandler` serves the graphql-playground UI + assets on the *same /graphql route* (GET for interactive explorer; POST for queries). No separate handler, redirect, mount, or example change required.
 
 ## Getting Started
 
@@ -150,9 +150,9 @@ func main() {
 }
 ```
 
-Jaal's `HTTPHandler` now supports GraphQL Playground out of the box *without any CDN or network dependencies*. The UI assets (HTML, CSS, JS, favicon) are embedded in the binary using Go's `embed` package and served on the *same /graphql route* internally (GET for UI; no separate handler/mount/redirect, no example change).
+Jaal's `HTTPHandler` now supports graphql-playground out of the box *without any CDN or network dependencies*. The UI assets (HTML, CSS, JS, favicon) are embedded in the binary using Go's `embed` package and served on the *same /graphql route* internally (GET for UI; no separate handler/mount/redirect, no example change).
 
-Once running, open `http://localhost:9000/graphql` (or your endpoint) in a browser to launch the interactive Playground UI for exploring the schema, testing queries/mutations (including resolvers for objects, interfaces, unions, etc.), and introspection. Client requests (e.g., POST) execute unchanged.
+Once running, open `http://localhost:9000/graphql` (or your endpoint) in a browser to launch the graphql-playground UI for exploring the schema, viewing SDL, testing queries/mutations (including resolvers for objects, interfaces, unions, etc.), and introspection. Client requests (e.g., POST) execute unchanged.
 
 In the above example, we registered all the operations, inputs & payloads on the schema. We also registered the fields we wanted to expose on the schema. Field registration allows us to control the way in which a field is exposed. Here we exposed the field Id of Character as the graphQL scalar ID.
 
@@ -181,11 +181,32 @@ input.FieldFunc("age", func(target *CreateUserInput, source int32) {
 }, schemabuilder.FieldDesc("Age in years (deprecated)."), schemabuilder.Deprecated("Use birthdate instead"))
 ```
 
-Deprecation is now options-based. The previous tag-based approach (`graphql:",deprecated=..."`) has been removed in favor of the cleaner options pattern.
+### OneOf Input Objects
+
+Mark input objects as OneOf (@oneOf directive per Oct 2021+ spec) using the `MarkOneOf()` method:
+
+```go
+type IdentifierInput struct {
+    ID    *schemabuilder.ID
+    Email *string
+}
+
+input := sb.InputObject("IdentifierInput", IdentifierInput{}, 
+    schemabuilder.WithDescription("OneOf identifier: exactly one of ID or email"))
+input.MarkOneOf()
+input.FieldFunc("id", func(target *IdentifierInput, source *schemabuilder.ID) {
+    target.ID = source
+})
+input.FieldFunc("email", func(target *IdentifierInput, source *string) {
+    target.Email = source
+})
+```
+
+Exactly one field must be provided/non-null in queries (enforced during input coercion). This is the recommended way to register oneOf inputs.
 
 ## Custom Scalar Registration
 
-Jaal supports custom scalars via reflection. Post-June 2018 spec compliance adds optional `specifiedByURL` (4th arg) for `@specifiedBy(url: String!)` directive on SCALAR (exposed in introspection __Type.specifiedByURL; e.g., for DateTime RFC).
+Jaal supports custom scalars via reflection. Use the `WithSpecifiedBy` option to attach the `@specifiedBy(url: String!)` directive on scalars (exposed in introspection __Type.specifiedByURL; e.g., for DateTime RFC).
 
 ```Go
 typ := reflect.TypeOf(time.Time{})
@@ -204,7 +225,7 @@ schemabuilder.RegisterScalar(typ, "DateTime", func(value interface{}, dest refle
     dest.Set(reflect.ValueOf(t))
 
     return nil
-}, "https://tools.ietf.org/html/rfc3339")
+}, schemabuilder.WithSpecifiedBy("https://tools.ietf.org/html/rfc3339"))
 ```
 
 (Backward-compatible: omit URL for pre-existing calls; defaults to null in introspection.)

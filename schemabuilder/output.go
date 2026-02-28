@@ -28,12 +28,12 @@ func (sb *schemaBuilder) buildStruct(typ reflect.Type) error {
 	}
 	var name string
 	var description string
-	var methods Methods
+	var methods methods
 	var objectKey string
 	if object, ok := sb.objects[typ]; ok {
 		name = object.Name
 		description = object.Description
-		methods = object.Methods
+		methods = object.methods
 		objectKey = object.key
 	} else {
 		if typ.Name() != "query" && typ.Name() != "mutation" && typ.Name() != "Subscription" {
@@ -187,11 +187,8 @@ func (sb *schemaBuilder) buildUnionStruct(typ reflect.Type) error {
 	return nil
 }
 
-// buildField generates a graphQL field for a struct's field.  This field can be used to "resolve" a response for a graphql request.
-// Per descriptions feature extension for FIELD_DEFINITION, now accepts fieldInfo (from
-// parseGraphQLFieldInfo in reflect.go) to set Description (from tag e.g.,
-// `graphql:"name,description=..."`; "" default; to graphql.Field for __Field.description).
-// Mirrors deprecation prop; for struct fields in buildStruct (FieldFunc methods stub "").
+// buildField generates a graphQL field for a struct field to resolve a graphql request.
+// Accepts fieldInfo (from parseGraphQLFieldInfo) to set Description from tags.
 func (sb *schemaBuilder) buildField(field reflect.StructField, fieldInfo *graphQLFieldInfo) (*graphql.Field, error) {
 	retType, err := sb.getType(field.Type)
 	if err != nil {

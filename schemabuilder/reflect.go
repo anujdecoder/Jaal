@@ -32,9 +32,9 @@ type graphQLFieldInfo struct {
 	Description string
 }
 
-// parseGraphQLFieldInfo parses a struct field and returns a struct with the parsed information about the field (tag info, name, etc).
-// Supports description per spec via tag: e.g., `json:"name" graphql:"description=Fetch by ID"`.
-// Follows tag parse pattern (json split); description only (deprecation removed - use options).
+// parseGraphQLFieldInfo parses a struct field and returns the parsed GraphQL metadata.
+// Supports description per spec via tag, e.g., `json:"name" graphql:"description=Fetch by ID"`.
+// Tags only influence name, optionality, and description.
 func parseGraphQLFieldInfo(field reflect.StructField) (*graphQLFieldInfo, error) {
 	if field.PkgPath != "" { //If the field of struct is not exported, then it is not exposed
 		return &graphQLFieldInfo{Skipped: true}, nil

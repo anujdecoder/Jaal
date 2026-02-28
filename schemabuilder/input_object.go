@@ -22,10 +22,8 @@ func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, gr
 		return nil, nil, err
 	}
 
-	// Capture OneOf for closure (set in generateArgParser if OneOfInput marker embedded;
-	// enables @oneOf validation for inline args structs in FieldFunc resolvers, e.g.,
-	// schema.Query().FieldFunc(..., func(..., args struct{ In ContactInput })).
-	// Matches capture in registered case below.
+	// Capture OneOf for closure (set in generateArgParser if InputObject.IsOneOf is true).
+	// Enables @oneOf validation for inline args structs in FieldFunc resolvers.
 	oneOf := argType.OneOf
 
 	return &argParser{
@@ -35,10 +33,8 @@ func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, gr
 				return errors.New("not an object")
 			}
 
-			// Validate @oneOf first if flagged (exactly 1 non-null; spec input unions;
-			// from validateOneOfInput helper). For arg structs (e.g., README examples'
-			// mutation args). Early check before field fill/unknown check; skips for
-			// !OneOf (BC for existing).
+			// Validate @oneOf first if flagged (exactly 1 non-null). Early check before
+			// field fill/unknown check; skips for !OneOf.
 			if oneOf {
 				if err := validateOneOfInput(argType.Name, asMap); err != nil {
 					return err
@@ -71,18 +67,16 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 		Name:                   typ.Name(),
 		InputFields:            make(map[string]graphql.Type),
 		InputFieldDescriptions: make(map[string]string),
-		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec; from tag parse).
-		// Empty string = non-deprecated (compat); populated below per field.
-		// OneOf for @oneOf INPUT_OBJECT (set below if marker embedded; default false).
-		// Description for INPUT_OBJECT (descriptions feature; default ""; see
-		// registered case below or Object.Description).
+		// FieldDeprecations for INPUT_FIELD_DEFINITION deprecation (spec).
+		// Empty string = non-deprecated; populated below per field.
+		// OneOf for @oneOf INPUT_OBJECT (default false; set via InputObject.MarkOneOf()).
+		// Description for INPUT_OBJECT (default ""; see registered case below).
 		FieldDeprecations: make(map[string]string),
 		Description:       "",
 	}
 
-	// Detect @oneOf marker early (for arg structs in FieldFunc e.g., args{Input: ContactInput}).
-	// Mirrors union handling; allows anon OneOfInput embed (spec input unions).
-	if hasOneOfMarkerEmbedded(typ) {
+	// Check if there's a registered InputObject for this type with IsOneOf set
+	if obj, ok := sb.inputObjects[typ]; ok && obj.IsOneOf {
 		argType.OneOf = true
 	}
 
@@ -91,11 +85,6 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		// Allow anonymous OneOfInput marker embed (for @oneOf; skip like unionType in
-		// output.go/buildUnionStruct). Other anon fields still err (non-breaking).
-		if field.Anonymous && field.Type == oneOfInputType {
-			continue
-		}
 		if field.Anonymous {
 			return nil, nil, fmt.Errorf("bad arg type %s: anonymous fields not supported", typ)
 		}
@@ -118,7 +107,7 @@ func (sb *schemaBuilder) generateArgParser(typ reflect.Type) (*graphql.InputObje
 		}
 
 		// Description captured from tag for struct-based input fields.
-		// Deprecation is now options-based via InputObject.FieldFunc (removed from tags).
+		// Deprecation is set via InputObject.FieldFunc options.
 		fields[fieldInfo.Name] = argField{
 			field:  field,
 			parser: parser,
@@ -175,27 +164,13 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		Name:                   obj.Name,
 		InputFields:            make(map[string]graphql.Type),
 		InputFieldDescriptions: make(map[string]string),
-		// FieldDeprecations default empty (for FieldFunc-based inputs; no tag parse).
+		// FieldDeprecations default empty (for FieldFunc-based inputs).
 		// Matches generateArgParser for struct inputs.
-		// OneOf for @oneOf INPUT_OBJECT (detected via marker embed below; default false
-		// for BC w/ existing registered inputs like CreateUserInput).
-		// Description for INPUT_OBJECT (from schemabuilder.InputObject.Description;
-		// per descriptions feature for __Type.description/Playground).
+		// OneOf for @oneOf INPUT_OBJECT (from InputObject.IsOneOf set via MarkOneOf()).
+		// Description for INPUT_OBJECT (from schemabuilder.InputObject.Description).
 		FieldDeprecations: make(map[string]string),
 		Description:       obj.Description,
-	}
-
-	// For registered InputObject from struct, detect OneOfInput marker embed for @oneOf
-	// (spec input unions; mirrors hasOneOfMarkerEmbedded in arg structs case from
-	// generateArgParser). Deprecation is now options-based via InputObject.FieldFunc.
-	if obj.Type != nil {
-		structTyp := reflect.TypeOf(obj.Type)
-		if structTyp.Kind() == reflect.Ptr {
-			structTyp = structTyp.Elem()
-		}
-		if hasOneOfMarkerEmbedded(structTyp) {
-			argType.OneOf = true
-		}
+		OneOf:             obj.IsOneOf,
 	}
 
 	for name, function := range obj.Fields {
@@ -225,8 +200,7 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 		argType.InputFields[name] = fieldArgTyp
 	}
 
-	// Capture OneOf for closure (graphql.InputObject.OneOf from marker detect above;
-	// enables spec validation w/o changing argType ref).
+	// Capture OneOf for closure (graphql.InputObject.OneOf from marker detect above).
 	oneOf := argType.OneOf
 
 	return &argParser{
@@ -236,10 +210,8 @@ func (sb *schemaBuilder) generateObjectParserInner(typ reflect.Type) (*argParser
 				return errors.New("not an object")
 			}
 
-			// Validate @oneOf first (exactly 1 non-null field per spec for input unions;
-			// from validateOneOfInput in input.go). Runs for registered inputs (e.g.,
-			// ContactInput); before field processing to early-error. Non-breaking:
-			// skips if !oneOf (existing inputs default false).
+			// Validate @oneOf first (exactly 1 non-null field). Runs for registered inputs
+			// before field processing; skips if !oneOf.
 			if oneOf {
 				if err := validateOneOfInput(argType.Name, asMap); err != nil {
 					return err
@@ -343,18 +315,4 @@ func (sb *schemaBuilder) generateSliceParser(typ reflect.Type) (*argParser, grap
 		},
 		Type: typ,
 	}, &graphql.List{Type: argType}, nil
-}
-
-// hasOneOfMarkerEmbedded determines if a struct has an embedded schemabuilder.OneOfInput
-// (for @oneOf directive support on INPUT_OBJECT per spec). Mirrors
-// hasUnionMarkerEmbedded in output.go (anon embed only; used for input symmetry
-// w/ unions/interfaces from README.md and protoc oneof hack).
-func hasOneOfMarkerEmbedded(typ reflect.Type) bool {
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Anonymous && field.Type == oneOfInputType {
-			return true
-		}
-	}
-	return false
 }
