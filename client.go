@@ -64,8 +64,8 @@ func NewHttpClient(client *http.Client, url string, header http.Header, opts ...
 
 func (c *Client) Do(query string, variables, response interface{}, opts ...CallOption) error {
 	rb := struct {
-		Query     string
-		Variables interface{}
+		Query     string      `json:"query"`
+		Variables interface{} `json:"variables"`
 	}{
 		Query:     query,
 		Variables: variables,
