@@ -96,19 +96,28 @@ func (sb *schemaBuilder) buildStruct(typ reflect.Type) error {
 	for _, name := range names {
 		method := methods[name]
 
-		// if method.Batch {
-		// 	batchField, err := sb.buildBatchFunctionWithFallback(typ, method)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	object.Fields[name] = batchField
-		// 	continue
-		// }
+		var built *graphql.Field
+		var err error
 
-		built, err := sb.buildFunction(typ, method)
-		if err != nil {
-			return fmt.Errorf("bad method %s on type %s: %s", name, typ, err)
+		if method.Batch {
+			built, err = sb.buildBatchFunction(typ, method)
+			if err != nil {
+				return fmt.Errorf("bad batch method %s on type %s: %s", name, typ, err)
+			}
+		} else {
+			built, err = sb.buildFunction(typ, method)
+			if err != nil {
+				return fmt.Errorf("bad method %s on type %s: %s", name, typ, err)
+			}
 		}
+
+		// Prepend type-level (Object) directives so they execute as the
+		// outermost layer, wrapping any field-level directives.
+		if obj, ok := sb.objects[typ]; ok && len(obj.Directives) > 0 {
+			objDirs := sb.resolveDirectives(obj.Directives)
+			built.SchemaDirectives = append(objDirs, built.SchemaDirectives...)
+		}
+
 		object.Fields[name] = built
 	}
 

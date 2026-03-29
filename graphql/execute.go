@@ -180,9 +180,41 @@ func (e *Executor) executeObject(ctx context.Context, typ *Object, source interf
 }
 
 func (e *Executor) resolveAndExecute(ctx context.Context, field *Field, source interface{}, selection *Selection) (interface{}, error) {
+	// Execute pre-resolver schema directives.
+	for _, d := range field.SchemaDirectives {
+		if d.ExecutionOrder != 0 { // 0 = PreResolver
+			continue
+		}
+		if d.Handler == nil {
+			continue
+		}
+		if err := d.Handler(ctx, d.Args); err != nil {
+			if d.OnFail == 1 { // 1 = SkipOnFail
+				return nil, nil
+			}
+			return nil, err
+		}
+	}
+
 	value, err := safeExecuteResolver(ctx, field, source, selection.Args, selection.SelectionSet)
 	if err != nil {
 		return nil, err
+	}
+
+	// Execute post-resolver schema directives.
+	for _, d := range field.SchemaDirectives {
+		if d.ExecutionOrder != 1 { // 1 = PostResolver
+			continue
+		}
+		if d.Handler == nil {
+			continue
+		}
+		if err := d.Handler(ctx, d.Args); err != nil {
+			if d.OnFail == 1 { // 1 = SkipOnFail
+				return nil, nil
+			}
+			return nil, err
+		}
 	}
 
 	// If a field returns function, then do not execute the function at the moment
@@ -212,6 +244,29 @@ func safeExecuteResolver(ctx context.Context, field *Field, source, args interfa
 
 var emptyList = []interface{}{}
 
+// unwrapToObject peels through NonNull wrappers and returns the underlying
+// *Object if there is one, or nil otherwise.
+func unwrapToObject(typ Type) *Object {
+	switch t := typ.(type) {
+	case *Object:
+		return t
+	case *NonNull:
+		return unwrapToObject(t.Type)
+	default:
+		return nil
+	}
+}
+
+// objectHasBatchFields returns true if any field on obj has a BatchResolve set.
+func objectHasBatchFields(obj *Object) bool {
+	for _, f := range obj.Fields {
+		if f.BatchResolve != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // executeList executes a set query
 func (e *Executor) executeList(ctx context.Context, typ *List, source interface{}, selectionSet *SelectionSet) (interface{}, error) {
 	if reflect.ValueOf(source).IsNil() {
@@ -220,10 +275,21 @@ func (e *Executor) executeList(ctx context.Context, typ *List, source interface{
 
 	// iterate over arbitrary slice types using reflect
 	slice := reflect.ValueOf(source)
-	items := make([]interface{}, slice.Len())
+	n := slice.Len()
+
+	// If the inner type is an Object with batch fields, use the optimised
+	// batched execution path that calls BatchResolve once per batch field
+	// for all N items instead of N times.
+	if obj := unwrapToObject(typ.Type); obj != nil && selectionSet != nil && n > 0 {
+		if objectHasBatchFields(obj) {
+			return e.executeBatchedList(ctx, typ.Type, obj, slice, selectionSet)
+		}
+	}
+
+	items := make([]interface{}, n)
 
 	// resolve every element in the slice
-	for i := 0; i < slice.Len(); i++ {
+	for i := 0; i < n; i++ {
 		value := slice.Index(i)
 		resolved, err := e.execute(ctx, typ.Type, value.Interface(), selectionSet)
 		if err != nil {
@@ -233,6 +299,171 @@ func (e *Executor) executeList(ctx context.Context, typ *List, source interface{
 			return nil, jerrors.NestErrorPaths(err, fmt.Sprint(i))
 		}
 		items[i] = resolved
+	}
+
+	return items, nil
+}
+
+// executeBatchedList handles list execution when the inner object type has
+// batch-resolved fields.  It:
+//  1. Flattens the selection set.
+//  2. Calls each batch field's BatchResolve once with ALL source items.
+//  3. Resolves non-batch fields per item as usual.
+//  4. Stitches everything into the response.
+func (e *Executor) executeBatchedList(ctx context.Context, innerType Type, obj *Object, slice reflect.Value, selectionSet *SelectionSet) (interface{}, error) {
+	n := slice.Len()
+
+	selections, err := Flatten(selectionSet)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect all source values.
+	sources := make([]interface{}, n)
+	for i := 0; i < n; i++ {
+		sources[i] = slice.Index(i).Interface()
+	}
+
+	// Pre-resolve every batch field once for all items.
+	// Key = selection Alias (unique per flattened selection).
+	batchResults := make(map[string][]interface{})
+
+	for _, sel := range selections {
+		if sel.Name == "__typename" {
+			continue
+		}
+
+		if ok, err := shouldIncludeNode(sel.Directives); err != nil {
+			return nil, err
+		} else if !ok {
+			continue
+		}
+
+		field := obj.Fields[sel.Name]
+		if field == nil || field.BatchResolve == nil {
+			continue
+		}
+
+		// Parse args once.
+		if !sel.parsed {
+			parsedArgs, err := field.ParseArguments(sel.Args)
+			if err != nil {
+				return nil, jerrors.NestErrorPaths(err, sel.Alias)
+			}
+			sel.Args = parsedArgs
+			sel.parsed = true
+		}
+
+		// Execute pre-resolver schema directives.
+		skipped := false
+		for _, d := range field.SchemaDirectives {
+			if d.ExecutionOrder != 0 { // 0 = PreResolver
+				continue
+			}
+			if d.Handler == nil {
+				continue
+			}
+			if err := d.Handler(ctx, d.Args); err != nil {
+				if d.OnFail == 1 { // SkipOnFail → null for every item
+					nilResults := make([]interface{}, n)
+					batchResults[sel.Alias] = nilResults
+					skipped = true
+					break
+				}
+				return nil, err
+			}
+		}
+		if skipped {
+			continue
+		}
+
+		// Call the batch resolver.
+		results, err := field.BatchResolve(ctx, sources, sel.Args, sel.SelectionSet)
+		if err != nil {
+			return nil, jerrors.NestErrorPaths(err, sel.Alias)
+		}
+		if len(results) != n {
+			return nil, fmt.Errorf("batch resolver for field %q returned %d results, expected %d", sel.Name, len(results), n)
+		}
+
+		// Execute post-resolver schema directives.
+		postSkipped := false
+		for _, d := range field.SchemaDirectives {
+			if d.ExecutionOrder != 1 { // 1 = PostResolver
+				continue
+			}
+			if d.Handler == nil {
+				continue
+			}
+			if err := d.Handler(ctx, d.Args); err != nil {
+				if d.OnFail == 1 { // SkipOnFail
+					nilResults := make([]interface{}, n)
+					batchResults[sel.Alias] = nilResults
+					postSkipped = true
+					break
+				}
+				return nil, err
+			}
+		}
+		if postSkipped {
+			continue
+		}
+
+		batchResults[sel.Alias] = results
+	}
+
+	// Now resolve each item, using pre-resolved batch results where available.
+	items := make([]interface{}, n)
+	for i := 0; i < n; i++ {
+		source := sources[i]
+		value := reflect.ValueOf(source)
+
+		// Respect NonNull: if the inner type is nullable and source is nil ptr → null.
+		if value.Kind() == reflect.Ptr && value.IsNil() {
+			items[i] = nil
+			continue
+		}
+
+		fields := make(map[string]interface{})
+
+		for _, sel := range selections {
+			if ok, err := shouldIncludeNode(sel.Directives); err != nil {
+				return nil, jerrors.NestErrorPaths(jerrors.NestErrorPaths(err, sel.Alias), fmt.Sprint(i))
+			} else if !ok {
+				continue
+			}
+
+			if sel.Name == "__typename" {
+				fields[sel.Alias] = obj.Name
+				continue
+			}
+
+			field := obj.Fields[sel.Name]
+
+			if batchRes, ok := batchResults[sel.Alias]; ok {
+				// Use the pre-resolved batch result — just execute sub-selections.
+				resolved, err := e.execute(ctx, field.Type, batchRes[i], sel.SelectionSet)
+				if err != nil {
+					if err == ErrNoUpdate {
+						return nil, err
+					}
+					return nil, jerrors.NestErrorPaths(jerrors.NestErrorPaths(err, sel.Alias), fmt.Sprint(i))
+				}
+				fields[sel.Alias] = resolved
+			} else {
+				// Non-batch field: resolve per item normally.
+				resolved, err := e.resolveAndExecute(ctx, field, source, sel)
+				if err != nil {
+					if err == ErrNoUpdate {
+						return nil, err
+					}
+					return nil, jerrors.NestErrorPaths(jerrors.NestErrorPaths(err, sel.Alias), fmt.Sprint(i))
+				}
+				fields[sel.Alias] = resolved
+			}
+		}
+
+		items[i] = fields
 	}
 
 	return items, nil

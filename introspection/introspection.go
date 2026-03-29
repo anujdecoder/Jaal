@@ -11,10 +11,11 @@ import (
 )
 
 type introspection struct {
-	types        map[string]graphql.Type
-	query        graphql.Type
-	mutation     graphql.Type
-	subscription graphql.Type
+	types            map[string]graphql.Type
+	query            graphql.Type
+	mutation         graphql.Type
+	subscription     graphql.Type
+	customDirectives []graphql.CustomDirective
 }
 
 type DirectiveLocation string
@@ -25,6 +26,7 @@ type DirectiveLocation string
 // (e.g., _LOC suffix); stubbed minimally for others. Matches TypeKind for
 // INPUT_OBJECT.
 const (
+	// Executable locations
 	QUERY                  DirectiveLocation = "QUERY"
 	MUTATION                                 = "MUTATION"
 	FIELD                                    = "FIELD"
@@ -32,10 +34,19 @@ const (
 	FRAGMENT_SPREAD                          = "FRAGMENT_SPREAD"
 	INLINE_FRAGMENT                          = "INLINE_FRAGMENT"
 	SUBSCRIPTION                             = "SUBSCRIPTION"
-	SCALAR_LOCATION        DirectiveLocation = "SCALAR"                 // for @specifiedBy
-	ARGUMENT_DEFINITION    DirectiveLocation = "ARGUMENT_DEFINITION"    // for input arg deprecation
-	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION" // for input field deprecation
-	INPUT_OBJECT_LOCATION  DirectiveLocation = "INPUT_OBJECT"           // for @oneOf input unions
+
+	// Type-system locations
+	SCALAR_LOCATION        DirectiveLocation = "SCALAR"
+	ARGUMENT_DEFINITION    DirectiveLocation = "ARGUMENT_DEFINITION"
+	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION"
+	INPUT_OBJECT_LOCATION  DirectiveLocation = "INPUT_OBJECT"
+	SCHEMA_LOCATION        DirectiveLocation = "SCHEMA"
+	OBJECT_LOCATION        DirectiveLocation = "OBJECT"
+	FIELD_DEFINITION_LOC   DirectiveLocation = "FIELD_DEFINITION"
+	INTERFACE_LOCATION     DirectiveLocation = "INTERFACE"
+	UNION_LOCATION         DirectiveLocation = "UNION"
+	ENUM_LOCATION          DirectiveLocation = "ENUM"
+	ENUM_VALUE_LOCATION    DirectiveLocation = "ENUM_VALUE"
 )
 
 type TypeKind string
@@ -151,6 +162,7 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 	// }
 
 	schema.Enum(DirectiveLocation("QUERY"), map[string]interface{}{
+		// Executable locations
 		"QUERY":               DirectiveLocation("QUERY"),
 		"MUTATION":            DirectiveLocation("MUTATION"),
 		"FIELD":               DirectiveLocation("FIELD"),
@@ -158,13 +170,18 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"FRAGMENT_SPREAD":     DirectiveLocation("FRAGMENT_SPREAD"),
 		"INLINE_FRAGMENT":     DirectiveLocation("INLINE_FRAGMENT"),
 		"SUBSCRIPTION":        DirectiveLocation("SUBSCRIPTION"),
-		"SCALAR":              DirectiveLocation(SCALAR_LOCATION), // for @specifiedBy
-		// New for deprecation on inputs (ARGUMENT_DEFINITION/INPUT_FIELD_DEFINITION spec)
-		// and @oneOf (INPUT_OBJECT_LOCATION for input unions; Oct 2021+).
-		// Suffix avoids redecl w/ TypeKind.INPUT_OBJECT.
-		"ARGUMENT_DEFINITION":    DirectiveLocation(ARGUMENT_DEFINITION),
+		// Type-system locations
+		"SCALAR":               DirectiveLocation(SCALAR_LOCATION),
+		"ARGUMENT_DEFINITION":  DirectiveLocation(ARGUMENT_DEFINITION),
 		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
-		"INPUT_OBJECT":           DirectiveLocation(INPUT_OBJECT_LOCATION), // for @oneOf
+		"INPUT_OBJECT":         DirectiveLocation(INPUT_OBJECT_LOCATION),
+		"SCHEMA":               DirectiveLocation(SCHEMA_LOCATION),
+		"OBJECT":               DirectiveLocation(OBJECT_LOCATION),
+		"FIELD_DEFINITION":     DirectiveLocation(FIELD_DEFINITION_LOC),
+		"INTERFACE":            DirectiveLocation(INTERFACE_LOCATION),
+		"UNION":                DirectiveLocation(UNION_LOCATION),
+		"ENUM":                 DirectiveLocation(ENUM_LOCATION),
+		"ENUM_VALUE":           DirectiveLocation(ENUM_VALUE_LOCATION),
 	}, schemabuilder.WithDescription("Directive locations supported by GraphQL."))
 }
 
@@ -715,15 +732,36 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		}
 		sort.Slice(types, func(i, j int) bool { return types[i].Inner.String() < types[j].Inner.String() })
 
+		// Built-in directives.
+		directives := []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective, oneOfDirective}
+
+		// Append user-registered custom directives for introspection.
+		for _, cd := range s.customDirectives {
+			d := Directive{
+				Name:        cd.Name,
+				Description: cd.Description,
+			}
+			d.Locations = make([]DirectiveLocation, len(cd.Locations))
+			for i, loc := range cd.Locations {
+				d.Locations[i] = DirectiveLocation(loc)
+			}
+			d.Args = make([]InputValue, len(cd.Args))
+			for i, arg := range cd.Args {
+				d.Args[i] = InputValue{
+					Name:        arg.Name,
+					Description: arg.Description,
+					Type:        Type{Inner: &graphql.Scalar{Type: arg.TypeName}},
+				}
+			}
+			directives = append(directives, d)
+		}
+
 		return &Schema{
 			Types:            types,
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			// include @specifiedBy, @deprecated (input values), and @oneOf (input unions/INPUT_OBJECT)
-			// in directives list (spec-compliant for Sept 2025). Custom scalars w/ URL,
-			// deprecated inputs/args, and oneOf inputs reflect in introspection.
-			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective, oneOfDirective},
+			Directives:       directives,
 		}
 	})
 
@@ -765,10 +803,11 @@ func AddIntrospectionToSchema(schema *graphql.Schema) {
 	collectTypes(schema.Mutation, types)
 	collectTypes(schema.Subscription, types)
 	is := &introspection{
-		types:        types,
-		query:        schema.Query,
-		mutation:     schema.Mutation,
-		subscription: schema.Subscription,
+		types:            types,
+		query:            schema.Query,
+		mutation:         schema.Mutation,
+		subscription:     schema.Subscription,
+		customDirectives: schema.CustomDirectives,
 	}
 	isSchema := is.schema()
 

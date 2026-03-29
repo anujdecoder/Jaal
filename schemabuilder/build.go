@@ -13,11 +13,41 @@ import (
 // we build out graphql types for our graphql schema.  Resolved graphQL "types"
 // are stored in the type map which we can use to see sections of the graph.
 type schemaBuilder struct {
-	types        map[reflect.Type]graphql.Type
-	objects      map[reflect.Type]*Object
-	enumMappings map[reflect.Type]*EnumMapping
-	typeCache    map[reflect.Type]cachedType // typeCache maps Go types to GraphQL datatypes
-	inputObjects map[reflect.Type]*InputObject
+	types         map[reflect.Type]graphql.Type
+	objects       map[reflect.Type]*Object
+	enumMappings  map[reflect.Type]*EnumMapping
+	typeCache     map[reflect.Type]cachedType // typeCache maps Go types to GraphQL datatypes
+	inputObjects  map[reflect.Type]*InputObject
+	directiveDefs map[string]*DirectiveDefinition // custom directive definitions
+}
+
+// resolveDirectives converts a slice of DirectiveInstance (field- or
+// type-level) into []graphql.ResolvedDirective by looking up each directive's
+// definition from the schema's registered directives.  Panics if a directive
+// has not been registered — this is caught early at Build() time rather than
+// at query time.
+func (sb *schemaBuilder) resolveDirectives(instances []DirectiveInstance) []graphql.ResolvedDirective {
+	if len(instances) == 0 {
+		return nil
+	}
+	resolved := make([]graphql.ResolvedDirective, 0, len(instances))
+	for _, inst := range instances {
+		if sb.directiveDefs == nil {
+			panic(fmt.Sprintf("directive @%s used but no directives registered on schema", inst.Name))
+		}
+		def, ok := sb.directiveDefs[inst.Name]
+		if !ok {
+			panic(fmt.Sprintf("directive @%s not registered on schema", inst.Name))
+		}
+		resolved = append(resolved, graphql.ResolvedDirective{
+			Name:           inst.Name,
+			Args:           inst.Args,
+			Handler:        def.Handler,
+			ExecutionOrder: int(def.ExecutionOrder),
+			OnFail:         int(def.OnFail),
+		})
+	}
+	return resolved
 }
 
 // cachedType is a container for GraphQL datatype and the list of its fields

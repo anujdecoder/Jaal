@@ -21,15 +21,20 @@ type Object struct {
 	methods     methods
 
 	key string
+
+	// Directives holds type-level directive instances attached via
+	// WithDirective.  During Build() these are propagated to every field of
+	// the object so that the directive handler wraps each field's resolver.
+	Directives []DirectiveInstance
 }
 
 // TypeOption configures a GraphQL type during registration.
 type TypeOption func(*typeConfig)
 
 type typeConfig struct {
-	description string
-	deprecated  string
-	directives  []string
+	description        string
+	deprecated         string
+	directiveInstances []DirectiveInstance
 }
 
 // WithDescription sets a description for a registered type.
@@ -46,10 +51,19 @@ func WithDeprecation(reason string) TypeOption {
 	}
 }
 
-// WithDirective attaches a directive name (reserved for future use).
-func WithDirective(name string) TypeOption {
+// WithDirective attaches a custom directive instance to a type.  The directive
+// must have been registered on the Schema via Schema.Directive() before Build().
+// When applied to an Object, the directive is propagated to every field of that
+// object so the handler wraps each resolver.
+// The optional args parameter supplies the concrete argument values for this
+// application.  If the directive accepts no arguments you may omit args.
+func WithDirective(name string, args ...map[string]interface{}) TypeOption {
 	return func(cfg *typeConfig) {
-		cfg.directives = append(cfg.directives, name)
+		inst := DirectiveInstance{Name: name}
+		if len(args) > 0 && args[0] != nil {
+			inst.Args = args[0]
+		}
+		cfg.directiveInstances = append(cfg.directiveInstances, inst)
 	}
 }
 
@@ -60,6 +74,7 @@ type fieldConfig struct {
 	description string
 	deprecated  string
 	nonNull     bool
+	directives  []DirectiveInstance
 }
 
 // FieldDesc sets a description for a field.
@@ -80,6 +95,26 @@ func Deprecated(reason string) FieldOption {
 func NonNull() FieldOption {
 	return func(cfg *fieldConfig) {
 		cfg.nonNull = true
+	}
+}
+
+// WithFieldDirective attaches a custom directive instance to a field.  The
+// directive must have been registered on the Schema via Schema.Directive()
+// before Build().  The optional args parameter supplies the concrete argument
+// values for this application.
+//
+// Example:
+//
+//	query.FieldFunc("admin", resolver,
+//	    schemabuilder.WithFieldDirective("hasRole", map[string]interface{}{"role": "ADMIN"}),
+//	)
+func WithFieldDirective(name string, args ...map[string]interface{}) FieldOption {
+	return func(cfg *fieldConfig) {
+		inst := DirectiveInstance{Name: name}
+		if len(args) > 0 && args[0] != nil {
+			inst.Args = args[0]
+		}
+		cfg.directives = append(cfg.directives, inst)
 	}
 }
 
@@ -150,10 +185,14 @@ type methods map[string]*method
 type method struct {
 	MarkedNonNullable bool
 	Fn                interface{}
+	// Batch indicates this method was registered via BatchFieldFunc.
+	Batch bool
 	// Description for FIELD_DEFINITION (set via FieldDesc option).
 	Description string
 	// DeprecationReason marks field deprecated (set via Deprecated option).
 	DeprecationReason *string
+	// Directives holds field-level directive instances (from WithFieldDirective).
+	Directives []DirectiveInstance
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
@@ -228,6 +267,49 @@ func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 		Fn:                f,
 		Description:       cfg.description,
 		MarkedNonNullable: cfg.nonNull,
+		Directives:        cfg.directives,
+	}
+	if cfg.deprecated != "" {
+		m.DeprecationReason = &cfg.deprecated
+	}
+
+	if _, ok := s.methods[name]; ok {
+		panic("duplicate method")
+	}
+	s.methods[name] = m
+}
+
+// BatchFieldFunc registers a batch-resolved field on an object.  Instead of
+// being called once per source object (N+1), the resolver is called once with
+// all source objects and must return a result slice of the same length.
+//
+// The function f must have the signature:
+//
+//	func([ctx context.Context,] sources []SourceType [, args struct{}] [, *graphql.SelectionSet]) ([]ResultType, [error])
+//
+// where SourceType matches the object's Go type (or pointer to it) and
+// ResultType is the per-item return value.
+//
+// Example:
+//
+//	article := schema.Object("Article", Article{})
+//	article.BatchFieldFunc("author", func(ctx context.Context, articles []Article) ([]*Author, error) {
+//	    ids := make([]string, len(articles))
+//	    for i, a := range articles { ids[i] = a.AuthorID }
+//	    return db.BatchGetAuthors(ctx, ids)
+//	})
+func (s *Object) BatchFieldFunc(name string, f interface{}, opts ...FieldOption) {
+	if s.methods == nil {
+		s.methods = make(methods)
+	}
+
+	cfg := applyFieldOptions(opts)
+	m := &method{
+		Fn:                f,
+		Batch:             true,
+		Description:       cfg.description,
+		MarkedNonNullable: cfg.nonNull,
+		Directives:        cfg.directives,
 	}
 	if cfg.deprecated != "" {
 		m.DeprecationReason = &cfg.deprecated

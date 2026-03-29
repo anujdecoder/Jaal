@@ -171,6 +171,7 @@ type BatchResolver func(ctx context.Context, sources []interface{}, args interfa
 // introspection. Matches field struct in introspection.go (omitempty for JSON/UI).
 type Field struct {
 	Resolve        Resolver
+	BatchResolve   BatchResolver // non-nil for batch-resolved fields (N+1 prevention)
 	Type           Type
 	Args           map[string]Type
 	ParseArguments func(json interface{}) (interface{}, error)
@@ -190,6 +191,11 @@ type Field struct {
 	IsDeprecated      bool
 	DeprecationReason *string `json:"deprecationReason,omitempty"`
 	Description       string  `json:"description,omitempty"`
+
+	// SchemaDirectives holds custom directives attached at schema-build time
+	// (via WithFieldDirective / type-level WithDirective).  Executed at
+	// resolve time in execute.go (pre- or post-resolver per definition).
+	SchemaDirectives []ResolvedDirective `json:"-"`
 }
 
 //Schema used to validate and resolve the queries
@@ -197,6 +203,10 @@ type Schema struct {
 	Query        Type
 	Mutation     Type
 	Subscription Type
+
+	// CustomDirectives holds user-registered directive definitions for
+	// introspection exposure in __Schema.directives.
+	CustomDirectives []CustomDirective
 }
 
 // SelectionSet represents a core GraphQL query
@@ -268,4 +278,32 @@ type FragmentSpread struct {
 type Directive struct {
 	Name string
 	Args interface{}
+}
+
+// ResolvedDirective is a custom directive attached at schema-build time, fully
+// resolved with its handler and configuration.  Stored on Field.SchemaDirectives.
+type ResolvedDirective struct {
+	Name           string
+	Args           map[string]interface{}
+	Handler        func(ctx context.Context, args map[string]interface{}) error
+	ExecutionOrder int // 0 = PreResolver (default), 1 = PostResolver
+	OnFail         int // 0 = ErrorOnFail (default), 1 = SkipOnFail
+}
+
+// CustomDirective holds the metadata of a user-registered directive definition
+// so that it can be exposed via introspection (__Schema.directives).
+type CustomDirective struct {
+	Name         string
+	Description  string
+	Locations    []string
+	Args         []CustomDirectiveArg
+	IsRepeatable bool
+}
+
+// CustomDirectiveArg describes one argument of a CustomDirective.
+type CustomDirectiveArg struct {
+	Name         string
+	TypeName     string
+	Description  string
+	DefaultValue interface{}
 }

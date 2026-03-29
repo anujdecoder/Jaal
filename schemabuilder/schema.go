@@ -14,6 +14,7 @@ type Schema struct {
 	objects      map[string]*Object
 	enumTypes    map[reflect.Type]*EnumMapping
 	inputObjects map[string]*InputObject
+	directives   map[string]*DirectiveDefinition
 }
 
 // NewSchema creates a new schema.
@@ -102,6 +103,7 @@ func (s *Schema) Object(name string, typ interface{}, opts ...TypeOption) *Objec
 		Name:        name,
 		Type:        typ,
 		Description: cfg.description,
+		Directives:  cfg.directiveInstances,
 	}
 	s.objects[name] = object
 	return object
@@ -138,6 +140,30 @@ func (s *Schema) InputObject(name string, typ interface{}, opts ...TypeOption) *
 	return inputObject
 }
 
+// Directive registers a custom directive definition on the schema.  The name
+// must be unique; panics on duplicates.  Call before Build().
+//
+// Example:
+//
+//	sb.Directive("hasRole", &schemabuilder.DirectiveDefinition{
+//	    Description:    "Restricts field access to the specified role",
+//	    Locations:      []schemabuilder.DirectiveLocation{schemabuilder.LocationFieldDefinition},
+//	    Args:           []schemabuilder.DirectiveArgDef{{Name: "role", TypeName: "String"}},
+//	    ExecutionOrder: schemabuilder.PreResolver,
+//	    OnFail:         schemabuilder.ErrorOnFail,
+//	    Handler: func(ctx context.Context, args map[string]interface{}) error { ... },
+//	})
+func (s *Schema) Directive(name string, def *DirectiveDefinition) {
+	if s.directives == nil {
+		s.directives = make(map[string]*DirectiveDefinition)
+	}
+	if _, exists := s.directives[name]; exists {
+		panic(fmt.Sprintf("duplicate directive @%s", name))
+	}
+	def.Name = name
+	s.directives[name] = def
+}
+
 type query struct{}
 
 // Query returns an Object struct that we can use to register all the top level
@@ -169,11 +195,12 @@ func (s *Schema) Subscription() *Object {
 // Query, Mutation and Subscription Objects and ensure that those functions are returning other Objects that we can resolve in our GraphQL graph.
 func (s *Schema) Build() (*graphql.Schema, error) {
 	sb := &schemaBuilder{
-		types:        make(map[reflect.Type]graphql.Type),
-		objects:      make(map[reflect.Type]*Object),
-		enumMappings: s.enumTypes,
-		typeCache:    make(map[reflect.Type]cachedType, 0),
-		inputObjects: make(map[reflect.Type]*InputObject, 0),
+		types:         make(map[reflect.Type]graphql.Type),
+		objects:       make(map[reflect.Type]*Object),
+		enumMappings:  s.enumTypes,
+		typeCache:     make(map[reflect.Type]cachedType, 0),
+		inputObjects:  make(map[reflect.Type]*InputObject, 0),
+		directiveDefs: s.directives,
 	}
 
 	for _, object := range s.objects {
@@ -215,10 +242,42 @@ func (s *Schema) Build() (*graphql.Schema, error) {
 		return nil, err
 	}
 	return &graphql.Schema{
-		Query:        queryTyp,
-		Mutation:     mutationTyp,
-		Subscription: subscriptionTyp,
+		Query:            queryTyp,
+		Mutation:         mutationTyp,
+		Subscription:     subscriptionTyp,
+		CustomDirectives: convertDirectiveDefs(s.directives),
 	}, nil
+}
+
+// convertDirectiveDefs converts schemabuilder directive definitions into
+// graphql.CustomDirective values for introspection exposure.
+func convertDirectiveDefs(defs map[string]*DirectiveDefinition) []graphql.CustomDirective {
+	if len(defs) == 0 {
+		return nil
+	}
+	result := make([]graphql.CustomDirective, 0, len(defs))
+	for _, def := range defs {
+		cd := graphql.CustomDirective{
+			Name:         def.Name,
+			Description:  def.Description,
+			IsRepeatable: def.IsRepeatable,
+		}
+		cd.Locations = make([]string, len(def.Locations))
+		for i, loc := range def.Locations {
+			cd.Locations[i] = string(loc)
+		}
+		cd.Args = make([]graphql.CustomDirectiveArg, len(def.Args))
+		for i, arg := range def.Args {
+			cd.Args[i] = graphql.CustomDirectiveArg{
+				Name:         arg.Name,
+				TypeName:     arg.TypeName,
+				Description:  arg.Description,
+				DefaultValue: arg.DefaultValue,
+			}
+		}
+		result = append(result, cd)
+	}
+	return result
 }
 
 //MustBuild builds a schema and panics if an error occurs.
@@ -236,6 +295,7 @@ func (s *Schema) Clone() *Schema {
 		objects:      make(map[string]*Object, len(s.objects)),
 		inputObjects: make(map[string]*InputObject, len(s.inputObjects)),
 		enumTypes:    make(map[reflect.Type]*EnumMapping, len(s.enumTypes)),
+		directives:   make(map[string]*DirectiveDefinition, len(s.directives)),
 	}
 
 	for key, value := range s.objects {
@@ -250,6 +310,12 @@ func (s *Schema) Clone() *Schema {
 		copy.enumTypes[key] = copyEnumMappings(value)
 	}
 
+	// Directive definitions are treated as immutable after registration so a
+	// shallow copy of the map is sufficient.
+	for key, value := range s.directives {
+		copy.directives[key] = value
+	}
+
 	return &copy
 }
 
@@ -259,14 +325,17 @@ func copyObject(object *Object) *Object {
 		Description: object.Description,
 		Type:        object.Type,
 		methods:     make(methods, len(object.methods)),
+		Directives:  append([]DirectiveInstance{}, object.Directives...),
 	}
 
 	for name, m := range object.methods {
 		copy.methods[name] = &method{
 			MarkedNonNullable: m.MarkedNonNullable,
 			Fn:                m.Fn,
+			Batch:             m.Batch,
 			Description:       m.Description,
 			DeprecationReason: m.DeprecationReason,
+			Directives:        append([]DirectiveInstance{}, m.Directives...),
 		}
 	}
 

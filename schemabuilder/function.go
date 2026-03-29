@@ -81,6 +81,9 @@ func (sb *schemaBuilder) buildFunctionAndFuncCtx(typ reflect.Type, m *method) (*
 		// DeprecationReason for FIELD_DEFINITION (from Deprecated option).
 		DeprecationReason: m.DeprecationReason,
 		IsDeprecated:      m.DeprecationReason != nil,
+		// SchemaDirectives resolved from field-level WithFieldDirective.
+		// Type-level (Object) directives are prepended later in buildStruct.
+		SchemaDirectives: sb.resolveDirectives(m.Directives),
 		LazyResolver: func(ctx context.Context, fun interface{}) (interface{}, error) {
 			callableFunc := reflect.ValueOf(fun)
 
@@ -90,6 +93,217 @@ func (sb *schemaBuilder) buildFunctionAndFuncCtx(typ reflect.Type, m *method) (*
 			return funcCtx.extractResultAndErr(funcOutputArgs, retType)
 		},
 	}, funcCtx, nil
+}
+
+// buildBatchFunction builds a graphql.Field whose BatchResolve is set.
+// The expected function signature is:
+//
+//	func([ctx context.Context,] sources []SourceType [, args struct{}] [, *SelectionSet]) ([]ResultType, [error])
+//
+// A single-item Resolve fallback is also generated so the field works outside
+// of list contexts (e.g. direct object queries).
+func (sb *schemaBuilder) buildBatchFunction(typ reflect.Type, m *method) (*graphql.Field, error) {
+	fun := reflect.ValueOf(m.Fn)
+	if fun.Kind() != reflect.Func {
+		return nil, fmt.Errorf("batch fun must be func, not %s", fun)
+	}
+	funcType := fun.Type()
+
+	if typ.Kind() == reflect.Ptr {
+		return nil, fmt.Errorf("source-type of buildBatchFunction cannot be a pointer (got: %v)", typ)
+	}
+
+	// ---- parse input parameters ----
+	in := make([]reflect.Type, 0, funcType.NumIn())
+	for i := 0; i < funcType.NumIn(); i++ {
+		in = append(in, funcType.In(i))
+	}
+
+	hasContext := false
+	if len(in) > 0 && in[0] == contextType {
+		hasContext = true
+		in = in[1:]
+	}
+
+	// Next parameter must be a slice whose element type matches typ (or *typ).
+	if len(in) == 0 {
+		return nil, fmt.Errorf("batch function must accept a slice of source type as its first non-context parameter")
+	}
+	sourceSliceType := in[0]
+	if sourceSliceType.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("batch function source parameter must be a slice, got %s", sourceSliceType)
+	}
+	sourceElemType := sourceSliceType.Elem()
+	isPtrSource := false
+	rawSourceType := sourceElemType
+	if sourceElemType.Kind() == reflect.Ptr {
+		rawSourceType = sourceElemType.Elem()
+		isPtrSource = true
+	}
+	if rawSourceType != typ {
+		return nil, fmt.Errorf("batch function source element type %s does not match object type %s", rawSourceType, typ)
+	}
+	in = in[1:]
+
+	// Optional args struct.
+	var argParser *argParser
+	var argType graphql.Type
+	hasArgs := false
+	if len(in) > 0 && in[0] != selectionSetType {
+		var err error
+		if argParser, argType, err = sb.makeInputObjectParser(in[0]); err != nil {
+			return nil, fmt.Errorf("batch args: %s", err)
+		}
+		hasArgs = true
+		in = in[1:]
+	}
+
+	// Optional *SelectionSet.
+	hasSelectionSet := false
+	if len(in) > 0 && in[0] == selectionSetType {
+		hasSelectionSet = true
+		in = in[1:]
+	}
+
+	if len(in) != 0 {
+		return nil, fmt.Errorf("batch function %s has unexpected trailing parameters", funcType)
+	}
+
+	// ---- parse return values ----
+	out := make([]reflect.Type, 0, funcType.NumOut())
+	for i := 0; i < funcType.NumOut(); i++ {
+		out = append(out, funcType.Out(i))
+	}
+
+	hasRet := false
+	var retSliceType reflect.Type
+	if len(out) > 0 && out[0] != errType {
+		hasRet = true
+		retSliceType = out[0]
+		if retSliceType.Kind() != reflect.Slice {
+			return nil, fmt.Errorf("batch function must return a slice, got %s", retSliceType)
+		}
+		out = out[1:]
+	}
+
+	hasError := false
+	if len(out) > 0 && out[0] == errType {
+		hasError = true
+		out = out[1:]
+	}
+
+	if len(out) != 0 {
+		return nil, fmt.Errorf("batch function %s return values should be ([]ResultType, [error])", funcType)
+	}
+	if !hasRet {
+		return nil, fmt.Errorf("batch function must return a result slice")
+	}
+
+	// Determine graphql return type from the element of the returned slice.
+	retElemType := retSliceType.Elem()
+	retType, err := sb.getType(retElemType)
+	if err != nil {
+		return nil, err
+	}
+	if m.MarkedNonNullable {
+		if _, ok := retType.(*graphql.NonNull); !ok {
+			retType = &graphql.NonNull{Type: retType}
+		}
+	}
+
+	// Build args map.
+	args := make(map[string]graphql.Type)
+	if hasArgs {
+		inputObject, ok := argType.(*graphql.InputObject)
+		if !ok {
+			return nil, fmt.Errorf("batch args should be an input object")
+		}
+		for name, typ := range inputObject.InputFields {
+			args[name] = typ
+		}
+	}
+
+	parseArgs := nilParseArguments
+	if argParser != nil {
+		parseArgs = argParser.Parse
+	}
+
+	// ---- build BatchResolve closure ----
+	batchResolve := func(ctx context.Context, sources []interface{}, funcRawArgs interface{}, selectionSet *graphql.SelectionSet) ([]interface{}, error) {
+		// Convert []interface{} → typed slice.
+		typedSlice := reflect.MakeSlice(sourceSliceType, len(sources), len(sources))
+		for i, s := range sources {
+			sv := reflect.ValueOf(s)
+			if isPtrSource && sv.Kind() != reflect.Ptr {
+				ptr := reflect.New(typ)
+				ptr.Elem().Set(sv)
+				typedSlice.Index(i).Set(ptr)
+			} else if !isPtrSource && sv.Kind() == reflect.Ptr {
+				typedSlice.Index(i).Set(sv.Elem())
+			} else {
+				typedSlice.Index(i).Set(sv)
+			}
+		}
+
+		callArgs := make([]reflect.Value, 0, 4)
+		if hasContext {
+			callArgs = append(callArgs, reflect.ValueOf(ctx))
+		}
+		callArgs = append(callArgs, typedSlice)
+		if hasArgs {
+			callArgs = append(callArgs, reflect.ValueOf(funcRawArgs))
+		}
+		if hasSelectionSet {
+			callArgs = append(callArgs, reflect.ValueOf(selectionSet))
+		}
+
+		result := fun.Call(callArgs)
+
+		idx := 0
+		var resultSlice reflect.Value
+		if hasRet {
+			resultSlice = result[idx]
+			idx++
+		}
+		if hasError {
+			errVal := result[idx]
+			if !errVal.IsNil() {
+				return nil, errVal.Interface().(error)
+			}
+		}
+
+		out := make([]interface{}, resultSlice.Len())
+		for i := 0; i < resultSlice.Len(); i++ {
+			out[i] = resultSlice.Index(i).Interface()
+		}
+		return out, nil
+	}
+
+	// ---- single-item Resolve fallback ----
+	resolve := func(ctx context.Context, source, funcRawArgs interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
+		results, err := batchResolve(ctx, []interface{}{source}, funcRawArgs, selectionSet)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) == 0 {
+			return nil, nil
+		}
+		return results[0], nil
+	}
+
+	return &graphql.Field{
+		Resolve:           resolve,
+		BatchResolve:      batchResolve,
+		Type:              retType,
+		Args:              args,
+		ParseArguments:    parseArgs,
+		Expensive:         hasContext,
+		External:          true,
+		Description:       m.Description,
+		DeprecationReason: m.DeprecationReason,
+		IsDeprecated:      m.DeprecationReason != nil,
+		SchemaDirectives:  sb.resolveDirectives(m.Directives),
+	}, nil
 }
 
 // funcContext is used to parse the function signature in buildFunction.

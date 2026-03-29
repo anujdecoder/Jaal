@@ -12,6 +12,8 @@ Jaal is a go framework for building spec compliant GraphQL servers. Jaal has sup
 * Interface Support
 * Union Support
 * In build include and skip directives
+* Custom directive registration with pre/post resolver execution and configurable fail behaviour
+* Automatic batching / DataLoader via `BatchFieldFunc` (N+1 query prevention)
 * Protocol buffers API generation
 * Out-of-the-box GraphQL Playground (embedded, no CDN): `jaal.HTTPHandler` serves the graphql-playground UI + assets on the *same /graphql route* (GET for interactive explorer; POST for queries). No separate handler, redirect, mount, or example change required.
 
@@ -377,6 +379,200 @@ func (s *server) RegisterUnion(schema *schemabuilder.Schema) {
     }, schemabuilder.FieldDesc("Fetch a magical creature by ID."))
 }
 ```
+
+## Automatic Batching / DataLoader
+
+Jaal provides built-in DataLoader-style automatic batching via `BatchFieldFunc`. Instead of resolving a field once per item in a list (the N+1 problem), a batch resolver is called **once** with all source objects and must return a result slice of the same length.
+
+### Basic usage
+
+```Go
+type Article struct {
+    ID       string
+    AuthorID string
+}
+
+type Author struct {
+    ID   string
+    Name string
+}
+
+// Register batch-resolved field on Article.
+article := sb.Object("Article", Article{})
+article.FieldFunc("id", func(a Article) string { return a.ID })
+
+// BatchFieldFunc: called once with ALL articles instead of N times.
+article.BatchFieldFunc("author", func(ctx context.Context, articles []Article) ([]*Author, error) {
+    // Collect all author IDs, do a single DB query.
+    ids := make([]string, len(articles))
+    for i, a := range articles {
+        ids[i] = a.AuthorID
+    }
+    return db.BatchGetAuthors(ctx, ids) // returns []*Author, error
+})
+```
+
+When the query `{ articles { id author { name } } }` executes on a list of 100 articles, the `author` batch resolver is called **exactly once** with all 100 articles, instead of 100 individual calls.
+
+### Supported function signatures
+
+```
+func([ctx context.Context,] sources []SourceType [, args struct{}] [, *graphql.SelectionSet]) ([]ResultType, [error])
+```
+
+- `SourceType` must match the object's Go type (value or pointer).
+- `ResultType` is the per-item return value (scalar, struct, pointer, slice, etc.).
+- The result slice must have the **same length** as the sources slice.
+
+### Batch with arguments
+
+```Go
+article.BatchFieldFunc("preview", func(articles []Article, args struct{ MaxLen int32 }) ([]string, error) {
+    out := make([]string, len(articles))
+    for i, a := range articles {
+        r := []rune(a.Body)
+        if int32(len(r)) > args.MaxLen {
+            r = r[:args.MaxLen]
+        }
+        out[i] = string(r)
+    }
+    return out, nil
+})
+// Query: { articles { preview(maxLen: 100) } }
+```
+
+### Mixing batch and normal fields
+
+Batch and non-batch fields coexist on the same object. Batch fields are resolved once in bulk; non-batch fields resolve per item as usual:
+
+```Go
+article.FieldFunc("title", func(a Article) string { return a.Title })        // per-item
+article.BatchFieldFunc("author", func(articles []Article) ([]*Author, error) { // batched
+    // ...
+})
+```
+
+### Single-item fallback
+
+Batch fields also work outside of list contexts (e.g., `{ article { author { name } } }`). A single-item `Resolve` fallback is automatically generated that wraps the batch call with a slice of one.
+
+### Options
+
+`BatchFieldFunc` supports the same `FieldOption` values as `FieldFunc`:
+
+```Go
+article.BatchFieldFunc("slug", batchSlugResolver,
+    schemabuilder.FieldDesc("URL-friendly slug"),
+    schemabuilder.Deprecated("Use canonicalUrl instead"),
+    schemabuilder.NonNull(),
+    schemabuilder.WithFieldDirective("hasRole", map[string]interface{}{"role": "ADMIN"}),
+)
+```
+
+### Nested batching
+
+When a batch field returns a list of objects that themselves have batch fields, the nested batch resolvers fire when the inner lists are executed. This is fully automatic.
+
+## Custom Directive Registration
+
+Jaal supports custom schema-level directives that execute handler functions at resolve time. This is ideal for access control (roles, rights, feature flags), auditing, rate limiting, and more. Directives are defined once on the schema, then attached to individual fields or entire object types.
+
+### Defining and registering a directive
+
+```Go
+sb := schemabuilder.NewSchema()
+
+// Register a @hasRole directive — PreResolver (default), ErrorOnFail (default).
+sb.Directive("hasRole", &schemabuilder.DirectiveDefinition{
+    Description: "Restricts field access to the specified role",
+    Locations:   []schemabuilder.DirectiveLocation{schemabuilder.LocationFieldDefinition},
+    Args: []schemabuilder.DirectiveArgDef{
+        {Name: "role", TypeName: "String", Description: "Required role"},
+    },
+    // ExecutionOrder: schemabuilder.PreResolver,  // default — runs before the resolver
+    // OnFail:         schemabuilder.ErrorOnFail,   // default — returns the error to the client
+    Handler: func(ctx context.Context, args map[string]interface{}) error {
+        requiredRole := args["role"].(string)
+        userRole, _ := ctx.Value("userRole").(string)
+        if userRole != requiredRole {
+            return fmt.Errorf("access denied: requires role %s", requiredRole)
+        }
+        return nil
+    },
+})
+```
+
+### Attaching a directive to a field
+
+Attach directives using `WithFieldDirective` in `FieldFunc`. The static args are supplied at registration time (not in the query):
+
+```Go
+query := sb.Query()
+query.FieldFunc("adminUsers", func(ctx context.Context) []*User {
+    return getAllAdminUsers(ctx)
+},
+    schemabuilder.FieldDesc("List of admin users"),
+    schemabuilder.WithFieldDirective("hasRole", map[string]interface{}{"role": "ADMIN"}),
+)
+```
+
+### Attaching a directive to an entire object type
+
+Use `WithDirective` on `Object()` to apply the directive to every field of that type:
+
+```Go
+obj := sb.Object("SecretData", SecretData{}, schemabuilder.WithDirective("hasRole", map[string]interface{}{"role": "ADMIN"}))
+obj.FieldFunc("code",  func(s SecretData) string { return s.Code })
+obj.FieldFunc("label", func(s SecretData) string { return s.Label })
+// Both "code" and "label" are now wrapped by @hasRole(role: "ADMIN").
+```
+
+### Execution order
+
+By default directives run **before** the field resolver (`PreResolver`). Set `PostResolver` to run **after** the resolver:
+
+```Go
+sb.Directive("audit", &schemabuilder.DirectiveDefinition{
+    Locations:      []schemabuilder.DirectiveLocation{schemabuilder.LocationFieldDefinition},
+    ExecutionOrder: schemabuilder.PostResolver,
+    Handler: func(ctx context.Context, args map[string]interface{}) error {
+        log.Println("field resolved — audit pass")
+        return nil
+    },
+})
+```
+
+### Fail behaviour
+
+By default, if a directive handler returns an error the error is propagated to the client (`ErrorOnFail`). Set `SkipOnFail` to silently return `null` for the field instead:
+
+```Go
+sb.Directive("featureFlag", &schemabuilder.DirectiveDefinition{
+    Locations:      []schemabuilder.DirectiveLocation{schemabuilder.LocationFieldDefinition},
+    OnFail:         schemabuilder.SkipOnFail, // null instead of error
+    Handler: func(ctx context.Context, args map[string]interface{}) error {
+        if !isFeatureEnabled(ctx, args["flag"].(string)) {
+            return errors.New("disabled") // silently returns null
+        }
+        return nil
+    },
+})
+```
+
+### Metadata-only directives
+
+Pass `Handler: nil` for directives that only need to appear in introspection (e.g. cache hints):
+
+```Go
+sb.Directive("cacheControl", &schemabuilder.DirectiveDefinition{
+    Description: "Cache control hints",
+    Locations:   []schemabuilder.DirectiveLocation{schemabuilder.LocationFieldDefinition},
+    Args:        []schemabuilder.DirectiveArgDef{{Name: "maxAge", TypeName: "Int"}},
+    Handler:     nil, // no runtime effect; visible in __Schema.directives
+})
+```
+
+Custom directives automatically appear in GraphQL introspection (`__schema { directives { ... } }`), alongside the built-in `@skip`, `@include`, `@deprecated`, `@specifiedBy`, and `@oneOf` directives.
 
 ## protoc-gen-jaal - Develop relay compliant GraphQL servers
 
