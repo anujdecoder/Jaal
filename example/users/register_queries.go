@@ -37,4 +37,45 @@ func RegisterQuery(sb *schemabuilder.Schema, s *Server) {
 	q.FieldFunc("allUsers", func(ctx context.Context) []*User {
 		return s.users
 	}, schemabuilder.FieldDesc("Returns all users in the system."))
+
+	// searchUsers: demonstrates argument deprecation - oldFilter is deprecated, use filter instead
+	q.FieldFunc("searchUsers", func(ctx context.Context, args struct {
+		OldFilter *string
+		Filter    *string
+		Limit     int32
+	}) []*User {
+		// Use filter if provided, otherwise fall back to oldFilter
+		searchTerm := args.Filter
+		if searchTerm == nil {
+			searchTerm = args.OldFilter
+		}
+
+		var results []*User
+		for _, u := range s.users {
+			if searchTerm == nil {
+				results = append(results, u)
+			} else if contains(u.Name, *searchTerm) || contains(u.Email, *searchTerm) {
+				results = append(results, u)
+			}
+			if int32(len(results)) >= args.Limit && args.Limit > 0 {
+				break
+			}
+		}
+		return results
+	}, schemabuilder.FieldDesc("Search users by name or email."),
+		schemabuilder.ArgDeprecation("oldFilter", "Use 'filter' instead. The oldFilter parameter will be removed in v2.0."))
+}
+
+// contains is a helper function for substring matching
+func contains(s, substr string) bool {
+	return len(substr) == 0 || len(s) >= len(substr) && (s == substr || containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

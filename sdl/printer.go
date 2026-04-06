@@ -96,7 +96,7 @@ func (p *Printer) isBuiltInType(name string) bool {
 		"__Field":             true,
 		"__InputValue":        true,
 		"__EnumValue":         true,
-		"__Directive":          true,
+		"__Directive":         true,
 		"__TypeKind":          true,
 		"__DirectiveLocation": true,
 	}
@@ -413,15 +413,15 @@ type SchemaTemplateData struct {
 
 // TypeTemplateData holds data for a single type template rendering.
 type TypeTemplateData struct {
-	Name          string
-	Description   string
+	Name           string
+	Description    string
 	SpecifiedByURL string
-	IsOneOf       bool
-	Implements    []string
-	Fields        []FieldTemplateData
-	InputFields   []InputFieldTemplateData
-	EnumValues    []EnumValueTemplateData
-	PossibleTypes []string
+	IsOneOf        bool
+	Implements     []string
+	Fields         []FieldTemplateData
+	InputFields    []InputFieldTemplateData
+	EnumValues     []EnumValueTemplateData
+	PossibleTypes  []string
 }
 
 // FieldTemplateData holds data for a field template rendering.

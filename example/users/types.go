@@ -33,6 +33,17 @@ const (
 	RoleGuest  Role = "GUEST"
 )
 
+// Status enum type for user account status.
+type Status string
+
+// Enum consts for Status.
+const (
+	StatusActive    Status = "ACTIVE"
+	StatusInactive  Status = "INACTIVE"
+	StatusPending   Status = "PENDING"
+	StatusSuspended Status = "SUSPENDED"
+)
+
 // CreateUserInput for createUser mutation.
 // Deprecation is now options-based via InputObject.FieldFunc.
 type CreateUserInput struct {

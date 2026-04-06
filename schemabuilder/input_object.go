@@ -9,9 +9,10 @@ import (
 )
 
 // makeInputObjectParser constructs an argParser for the passed in args struct i.e. the input struct which contains all the objects to be given as input. For eg:
-// obj.fieldFunc("name", func(ctx context.Context, args struct{
-// 	A createObjectRequest
-// }{}))
+//
+//	obj.fieldFunc("name", func(ctx context.Context, args struct{
+//		A createObjectRequest
+//	}{}))
 func (sb *schemaBuilder) makeInputObjectParser(typ reflect.Type) (*argParser, graphql.Type, error) {
 	if typ.Kind() != reflect.Struct {
 		return nil, nil, fmt.Errorf("expected struct but received type %s", typ.Name())

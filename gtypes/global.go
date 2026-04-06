@@ -10,7 +10,7 @@ import (
 	"google.golang.org/genproto/protobuf/field_mask"
 )
 
-//Schema is used to build the graphql schema
+// Schema is used to build the graphql schema
 var Schema = schemabuilder.NewSchema()
 
 func init() {

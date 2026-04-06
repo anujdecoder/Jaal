@@ -18,8 +18,8 @@ import (
 // Per spec, DeprecationReason supports @deprecated on input fields/args
 // (INPUT_FIELD_DEFINITION/ARGUMENT_DEFINITION; parsed from tags in reflect.go).
 type argField struct {
-	field             reflect.StructField
-	parser            *argParser
+	field  reflect.StructField
+	parser *argParser
 	// DeprecationReason if set for deprecation (empty = non-deprecated; *string in intro).
 	DeprecationReason string
 }
@@ -79,29 +79,37 @@ func wrapPtrParser(inner *argParser) *argParser {
 // Pulls Description from EnumMapping (set via schema.Enum(..., desc) per
 // descriptions feature; default "" ; attached to graphql.Enum for
 // __Type/__EnumValue.description in introspection/Playground).
+// Also includes ValueDeprecations for enum value deprecation support.
 func (sb *schemaBuilder) getEnumArgParser(typ reflect.Type) (*argParser, graphql.Type) {
 	var values []string
 	for mapping := range sb.enumMappings[typ].Map {
 		values = append(values, mapping)
 	}
-	// Description from enum reg (spec; BC "").
+	// Description and ValueDeprecations from enum reg (spec; BC "").
 	desc := ""
+	var valueDeprecations map[string]string
 	if em, ok := sb.enumMappings[typ]; ok {
 		desc = em.Description
+		valueDeprecations = em.ValueDeprecations
 	}
 	return &argParser{FromJSON: func(value interface{}, dest reflect.Value) error {
-		asString, ok := value.(string)
-		if !ok {
-			return errors.New("not a string")
+			asString, ok := value.(string)
+			if !ok {
+				return errors.New("not a string")
+			}
+			val, ok := sb.enumMappings[typ].Map[asString]
+			if !ok {
+				return fmt.Errorf("unknown enum value %v", asString)
+			}
+			dest.Set(reflect.ValueOf(val).Convert(dest.Type()))
+			return nil
+		}, Type: typ}, &graphql.Enum{
+			Type:              typ.Name(),
+			Values:            values,
+			ReverseMap:        sb.enumMappings[typ].ReverseMap,
+			Description:       desc,
+			ValueDeprecations: valueDeprecations,
 		}
-		val, ok := sb.enumMappings[typ].Map[asString]
-		if !ok {
-			return fmt.Errorf("unknown enum value %v", asString)
-		}
-		dest.Set(reflect.ValueOf(val).Convert(dest.Type()))
-		return nil
-	}, Type: typ}, &graphql.Enum{Type: typ.Name(), Values: values, ReverseMap: sb.enumMappings[typ].ReverseMap, Description: desc}
-
 }
 
 // wrapWithZeroValue wraps an ArgParser with a helper that will convert non- provided parameters into the argParser's zero value (basically do nothing).

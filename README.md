@@ -181,6 +181,50 @@ input.FieldFunc("age", func(target *CreateUserInput, source int32) {
 }, schemabuilder.FieldDesc("Age in years (deprecated)."), schemabuilder.Deprecated("Use birthdate instead"))
 ```
 
+#### Argument Deprecation
+
+Mark field arguments as deprecated using the `ArgDeprecation` option:
+
+```go
+// Deprecate a field argument
+query.FieldFunc("searchUsers", func(ctx context.Context, args struct {
+    Query    string
+    Username string  // Deprecated: use Query for full-text search
+}) []*User {
+    // Implementation uses Query, ignores Username
+    return searchUsers(args.Query)
+},
+    schemabuilder.FieldDesc("Search users by query string"),
+    schemabuilder.ArgDeprecation("username", "Use 'query' for full-text search instead"),
+)
+```
+
+#### Enum Value Deprecation
+
+Mark specific enum values as deprecated using the `EnumValueDeprecation` option:
+
+```go
+type UserRole int32
+const (
+    RoleAdmin UserRole = iota
+    RoleUser
+    RoleGuest      // Deprecated: use RoleReadOnly
+    RoleReadOnly   // Replacement for Guest
+)
+
+schema.Enum(UserRole(0), map[string]interface{}{
+    "ADMIN":     RoleAdmin,
+    "USER":      RoleUser,
+    "GUEST":     RoleGuest,     // Will be deprecated
+    "READ_ONLY": RoleReadOnly,
+},
+    schemabuilder.WithDescription("User roles in the system"),
+    schemabuilder.EnumValueDeprecation("GUEST", "Use READ_ONLY instead"),
+)
+```
+
+Deprecated arguments and enum values will appear in introspection with `isDeprecated: true` and the provided deprecation reason, allowing clients like GraphQL Playground to display them as deprecated.
+
 ### OneOf Input Objects
 
 Mark input objects as OneOf (@oneOf directive per Oct 2021+ spec) using the `MarkOneOf()` method:
@@ -384,7 +428,7 @@ func (s *server) RegisterUnion(schema *schemabuilder.Schema) {
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for reporting bugs and issues, the process for submitting pull requests to us, and roadmap. This project has adopted [Contributor Covenant Code of Conduct](code-of-conduct.md).
+Please read [CONTRIBUTING.md](docs/CONTRIBUTING.md) for reporting bugs and issues, the process for submitting pull requests to us, and roadmap. This project has adopted [Contributor Covenant Code of Conduct](docs/code-of-conduct.md).
 
 ## Contributors
 

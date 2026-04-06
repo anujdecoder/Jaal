@@ -13,7 +13,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 )
 
-//Object - an Object represents a Go type and set of methods to be converted into an Object in a GraphQL schema.
+// Object - an Object represents a Go type and set of methods to be converted into an Object in a GraphQL schema.
 type Object struct {
 	Name        string // Optional, defaults to Type's name.
 	Description string
@@ -27,9 +27,10 @@ type Object struct {
 type TypeOption func(*typeConfig)
 
 type typeConfig struct {
-	description string
-	deprecated  string
-	directives  []string
+	description      string
+	deprecated       string
+	directives       []string
+	enumDeprecations map[string]string // enum value name -> deprecation reason
 }
 
 // WithDescription sets a description for a registered type.
@@ -57,9 +58,10 @@ func WithDirective(name string) TypeOption {
 type FieldOption func(*fieldConfig)
 
 type fieldConfig struct {
-	description string
-	deprecated  string
-	nonNull     bool
+	description     string
+	deprecated      string
+	nonNull         bool
+	argDeprecations map[string]string // arg name -> deprecation reason
 }
 
 // FieldDesc sets a description for a field.
@@ -80,6 +82,28 @@ func Deprecated(reason string) FieldOption {
 func NonNull() FieldOption {
 	return func(cfg *fieldConfig) {
 		cfg.nonNull = true
+	}
+}
+
+// ArgDeprecation marks a specific argument as deprecated.
+// Usage: obj.FieldFunc("field", resolver, ArgDeprecation("oldArg", "Use newArg instead"))
+func ArgDeprecation(argName string, reason string) FieldOption {
+	return func(cfg *fieldConfig) {
+		if cfg.argDeprecations == nil {
+			cfg.argDeprecations = make(map[string]string)
+		}
+		cfg.argDeprecations[argName] = reason
+	}
+}
+
+// EnumValueDeprecation marks a specific enum value as deprecated.
+// Usage: schema.Enum(Type(0), values, EnumValueDeprecation("OLD", "Use NEW instead"))
+func EnumValueDeprecation(valueName string, reason string) TypeOption {
+	return func(cfg *typeConfig) {
+		if cfg.enumDeprecations == nil {
+			cfg.enumDeprecations = make(map[string]string)
+		}
+		cfg.enumDeprecations[valueName] = reason
 	}
 }
 
@@ -105,9 +129,11 @@ func applyFieldOptions(opts []FieldOption) fieldConfig {
 
 // Key registers the key field on an object. The field should be specified by the name of the graphql field.
 // For example, for an object User:
-//   type struct User {
-//	   UserKey int64
-//   }
+//
+//	  type struct User {
+//		   UserKey int64
+//	  }
+//
 // The key will be registered as:
 // object.Key("userKey")
 func (s *Object) Key(f string) {
@@ -154,16 +180,19 @@ type method struct {
 	Description string
 	// DeprecationReason marks field deprecated (set via Deprecated option).
 	DeprecationReason *string
+	// ArgDeprecations marks arguments as deprecated (set via ArgDeprecation option).
+	ArgDeprecations map[string]string // arg name -> deprecation reason
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
 // Per descriptions feature, Description string (set via Enum reg; "" default;
 // exposed in introspection __EnumValue/__Type.description for Playground/spec).
-// Matches Object.Description; for enum types (e.g., Role).
+// Per deprecation spec, ValueDeprecations maps enum value names to deprecation reasons.
 type EnumMapping struct {
-	Map         map[string]interface{}
-	ReverseMap  map[interface{}]string
-	Description string
+	Map               map[string]interface{}
+	ReverseMap        map[interface{}]string
+	Description       string
+	ValueDeprecations map[string]string // enum value name -> deprecation reason
 }
 
 // InterfaceObj is a representation of graphql interface
@@ -181,11 +210,12 @@ type Interface struct{}
 //
 // For example, to denote that a return value that may be a *Asset or
 // *Vehicle might look like:
-//   type GatewayUnion struct {
-//     schemabuilder.Union
-//     *Asset
-//     *Vehicle
-//   }
+//
+//	type GatewayUnion struct {
+//	  schemabuilder.Union
+//	  *Asset
+//	  *Vehicle
+//	}
 //
 // Fields returning a union type should expect to return this type as a
 // one-hot struct, i.e. only Asset or Vehicle should be specified, but not both.
@@ -204,18 +234,20 @@ var scalarSpecifiedByURLs = map[reflect.Type]string{}
 //
 // For example, for an object of type User, a fullName field might take just an
 // instance of the object:
-//    user.FieldFunc("fullName", func(u *User) string {
-//       return u.FirstName + " " + u.LastName
-//    })
+//
+//	user.FieldFunc("fullName", func(u *User) string {
+//	   return u.FirstName + " " + u.LastName
+//	})
 //
 // An addUser mutation field might take both a context and arguments:
-//    mutation.FieldFunc("addUser", func(ctx context.Context, args struct{
-//        FirstName string
-//        LastName  string
-//    }) (int, error) {
-//        userID, err := db.AddUser(ctx, args.FirstName, args.LastName)
-//        return userID, err
-//    })
+//
+//	mutation.FieldFunc("addUser", func(ctx context.Context, args struct{
+//	    FirstName string
+//	    LastName  string
+//	}) (int, error) {
+//	    userID, err := db.AddUser(ctx, args.FirstName, args.LastName)
+//	    return userID, err
+//	})
 //
 // FieldFunc exposes a field on an object with optional configuration.
 func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
@@ -232,6 +264,10 @@ func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 	if cfg.deprecated != "" {
 		m.DeprecationReason = &cfg.deprecated
 	}
+	// Capture argument deprecations from config
+	if len(cfg.argDeprecations) > 0 {
+		m.ArgDeprecations = cfg.argDeprecations
+	}
 
 	if _, ok := s.methods[name]; ok {
 		panic("duplicate method")
@@ -240,17 +276,22 @@ func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 }
 
 // FieldFunc is used to expose the fields of an input object and determine the method to fill it
-// type ServiceProvider struct {
-// 	Id                   string
-// 	FirstName            string
-// }
+//
+//	type ServiceProvider struct {
+//		Id                   string
+//		FirstName            string
+//	}
+//
 // inputObj := schema.InputObject("serviceProvider", ServiceProvider{})
-// inputObj.FieldFunc("id", func(target *ServiceProvider, source *schemabuilder.ID) {
-// 	target.Id = source.Value
-// })
-// inputObj.FieldFunc("firstName", func(target *ServiceProvider, source *string) {
-// 	target.FirstName = *source
-// })
+//
+//	inputObj.FieldFunc("id", func(target *ServiceProvider, source *schemabuilder.ID) {
+//		target.Id = source.Value
+//	})
+//
+//	inputObj.FieldFunc("firstName", func(target *ServiceProvider, source *string) {
+//		target.FirstName = *source
+//	})
+//
 // The target variable of the function should be pointer
 func (io *InputObject) FieldFunc(name string, function interface{}, opts ...FieldOption) {
 	funcTyp := reflect.TypeOf(function)
@@ -320,30 +361,33 @@ type UnmarshalFunc func(value interface{}, dest reflect.Value) error
 // to "" (null in output; for built-ins/customs without external spec).
 //
 // For example, to register a custom ID type,
-// type ID struct {
-// 		Value string
-// }
+//
+//	type ID struct {
+//			Value string
+//	}
 //
 // Implement JSON Marshalling
-// func (id ID) MarshalJSON() ([]byte, error) {
-//  return strconv.AppendQuote(nil, string(id.Value)), nil
-// }
+//
+//	func (id ID) MarshalJSON() ([]byte, error) {
+//	 return strconv.AppendQuote(nil, string(id.Value)), nil
+//	}
 //
 // Register unmarshal func (with optional URL)
-// func init() {
-//	typ := reflect.TypeOf((*ID)(nil)).Elem()
-//	if err := schemabuilder.RegisterScalar(typ, "ID", func(value interface{}, d reflect.Value) error {
-//		v, ok := value.(string)
-//		if !ok {
-//			return errors.New("not a string type")
-//		}
 //
-//		d.Field(0).SetString(v)
-//		return nil
-//	}, schemabuilder.WithSpecifiedBy("https://...")); err != nil {
-//		panic(err)
+//	func init() {
+//		typ := reflect.TypeOf((*ID)(nil)).Elem()
+//		if err := schemabuilder.RegisterScalar(typ, "ID", func(value interface{}, d reflect.Value) error {
+//			v, ok := value.(string)
+//			if !ok {
+//				return errors.New("not a string type")
+//			}
+//
+//			d.Field(0).SetString(v)
+//			return nil
+//		}, schemabuilder.WithSpecifiedBy("https://...")); err != nil {
+//			panic(err)
+//		}
 //	}
-//}
 func RegisterScalar(typ reflect.Type, name string, uf UnmarshalFunc, opts ...ScalarOption) error {
 	if typ.Kind() == reflect.Ptr {
 		return errors.New("type should not be of pointer type")
@@ -432,7 +476,7 @@ func getScalarSpecifiedByURL(typ reflect.Type) string {
 	return ""
 }
 
-//Timestamp handles the time
+// Timestamp handles the time
 type Timestamp timestamp.Timestamp
 
 // MarshalJSON implements JSON Marshalling used to generate the output
@@ -440,7 +484,7 @@ func (t Timestamp) MarshalJSON() ([]byte, error) {
 	return strconv.AppendQuote(nil, string(time.Unix(t.Seconds, int64(t.Nanos)).Format(time.RFC3339))), nil
 }
 
-//Map handles maps
+// Map handles maps
 type Map struct {
 	Value string
 }
@@ -455,7 +499,7 @@ func (m Map) MarshalJSON() ([]byte, error) {
 	return d, nil
 }
 
-//Duration handles the duration
+// Duration handles the duration
 type Duration duration.Duration
 
 // MarshalJSON implements JSON Marshalling used to generate the output
@@ -463,7 +507,7 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 	return []byte(strconv.Itoa(int(d.Seconds))), nil
 }
 
-//Bytes handles the duration
+// Bytes handles the duration
 type Bytes struct {
 	Value []byte
 }

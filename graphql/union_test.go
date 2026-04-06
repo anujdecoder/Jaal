@@ -19,7 +19,7 @@ const (
 	GatewayType_Asset
 )
 
-//TODO: Add a test case for testing union object nil error
+// TODO: Add a test case for testing union object nil error
 func TestUnionType(t *testing.T) {
 	type Vehicle struct {
 		Name  string

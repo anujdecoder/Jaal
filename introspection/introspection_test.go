@@ -939,8 +939,8 @@ func TestIntrospectionForInterface(t *testing.T) {
 							},
 							"args": []interface{}{
 								map[string]interface{}{
-									"name":         "reason",
-									"description":  "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
+									"name":        "reason",
+									"description": "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data.",
 									// "\"No longer supported\"" per GraphQL literal for defaultValue
 									// in introspection (ensures Playground SDL parse; see
 									// deprecatedDirective in introspection.go).

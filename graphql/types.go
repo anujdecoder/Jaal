@@ -36,12 +36,13 @@ func (s *Scalar) String() string {
 // Enum is a leaf value.
 // Per descriptions feature, Description string (set via schemabuilder.Enum or
 // future; "" default; exposed in introspection __EnumValue/__Type.description).
-// Matches Object/Union/Interface.Description pattern for spec compliance.
+// Per deprecation spec, ValueDeprecations maps enum value names to deprecation reasons.
 type Enum struct {
-	Type        string
-	Values      []string
-	ReverseMap  map[interface{}]string
-	Description string
+	Type              string
+	Values            []string
+	ReverseMap        map[interface{}]string
+	Description       string
+	ValueDeprecations map[string]string // enum value name -> deprecation reason
 }
 
 func (e *Enum) isType() {}
@@ -80,7 +81,7 @@ func (l *List) String() string {
 	return fmt.Sprintf("[%s]", l.Type)
 }
 
-//InputObject defines the object in argument of a query, mutation or subscription.
+// InputObject defines the object in argument of a query, mutation or subscription.
 // Per deprecation on input values spec, FieldDeprecations map holds reasons for
 // INPUT_FIELD_DEFINITION (key=field name; empty/no entry = non-deprecated).
 // Per OneOf Input Objects spec (Oct 2021+), OneOf bool marks @oneOf directive
@@ -163,6 +164,16 @@ type Resolver func(ctx context.Context, source, args interface{}, selectionSet *
 // A BatchResolver calculates the value of a field for a slice of objects.
 type BatchResolver func(ctx context.Context, sources []interface{}, args interface{}, selectionSet *SelectionSet) ([]interface{}, error)
 
+// Argument represents a GraphQL field argument.
+// Per Oct 2021+ spec, supports IsDeprecated/DeprecationReason for @deprecated on ARGUMENT_DEFINITION.
+type Argument struct {
+	Type              Type
+	Description       string
+	IsDeprecated      bool
+	DeprecationReason *string
+	DefaultValue      interface{} // For future use
+}
+
 // Field knows how to compute field values of an Object
 //
 // Fields are responsible for computing their value themselves.
@@ -172,7 +183,7 @@ type BatchResolver func(ctx context.Context, sources []interface{}, args interfa
 type Field struct {
 	Resolve        Resolver
 	Type           Type
-	Args           map[string]Type
+	Args           map[string]*Argument
 	ParseArguments func(json interface{}) (interface{}, error)
 
 	External  bool
@@ -192,7 +203,7 @@ type Field struct {
 	Description       string  `json:"description,omitempty"`
 }
 
-//Schema used to validate and resolve the queries
+// Schema used to validate and resolve the queries
 type Schema struct {
 	Query        Type
 	Mutation     Type
@@ -204,13 +215,13 @@ type Schema struct {
 // A SelectionSet can contain multiple fields and multiple fragments. For
 // example, the query
 //
-//     {
-//       name
-//       ... UserFragment
-//       memberships {
-//         organization { name }
-//       }
-//     }
+//	{
+//	  name
+//	  ... UserFragment
+//	  memberships {
+//	    organization { name }
+//	  }
+//	}
 //
 // results in a root SelectionSet with two selections (name and memberships),
 // and one fragment (UserFragment). The subselection `organization { name }`
@@ -223,11 +234,11 @@ type SelectionSet struct {
 	Fragments  []*FragmentSpread
 }
 
-//Selection : A selection represents a part of a GraphQL query
+// Selection : A selection represents a part of a GraphQL query
 //
 // The selection
 //
-//     me: user(id: 166) { name }
+//	me: user(id: 166) { name }
 //
 // has name "user" (representing the source field to be queried), alias "me"
 // (representing the name to be used in the output), args id: 166 (representing

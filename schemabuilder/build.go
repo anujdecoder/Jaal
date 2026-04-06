@@ -31,9 +31,15 @@ type cachedType struct {
 // This function will be called recursively for types as we go through the graph.
 func (sb *schemaBuilder) getType(nodeType reflect.Type) (graphql.Type, error) {
 	// Support scalars and optional scalars. Scalars have precedence over structs to have eg. time.Time function as a scalar.
-	// For enums, include Description (descriptions feature; from getEnum).
+	// For enums, include Description (descriptions feature; from getEnum) and ValueDeprecations.
 	if typeName, values, desc, ok := sb.getEnum(nodeType); ok {
-		return &graphql.NonNull{Type: &graphql.Enum{Type: typeName, Values: values, ReverseMap: sb.enumMappings[nodeType].ReverseMap, Description: desc}}, nil
+		return &graphql.NonNull{Type: &graphql.Enum{
+			Type:              typeName,
+			Values:            values,
+			ReverseMap:        sb.enumMappings[nodeType].ReverseMap,
+			Description:       desc,
+			ValueDeprecations: sb.enumMappings[nodeType].ValueDeprecations,
+		}}, nil
 	}
 
 	if typeName, specifiedByURL, ok := getScalar(nodeType); ok {

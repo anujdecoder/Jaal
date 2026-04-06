@@ -237,6 +237,24 @@ func TestPrintObject(t *testing.T) {
 			},
 			expected: "type Query {\n  users(limit: Int = 10, offset: Int = 0): [User]\n}\n\n",
 		},
+		{
+			name: "object with deprecated argument",
+			object: FullType{
+				Kind: ObjectKind,
+				Name: "Query",
+				Fields: []Field{
+					{
+						Name: "searchUsers",
+						Type: TypeRef{Kind: ListKind, OfType: &TypeRef{Kind: ObjectKind, Name: "User"}},
+						Args: []InputValue{
+							{Name: "query", Type: TypeRef{Kind: ScalarKind, Name: "String"}},
+							{Name: "username", Type: TypeRef{Kind: ScalarKind, Name: "String"}, IsDeprecated: true, DeprecationReason: strPtr("Use query instead")},
+						},
+					},
+				},
+			},
+			expected: "type Query {\n  searchUsers(query: String, username: String @deprecated(reason: \"Use query instead\")): [User]\n}\n\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -575,7 +593,7 @@ func TestPrintUnion(t *testing.T) {
 // Test full schema printing
 func TestPrintFullSchema(t *testing.T) {
 	schema := Schema{
-		QueryType: &NamedType{Name: "Query"},
+		QueryType:    &NamedType{Name: "Query"},
 		MutationType: &NamedType{Name: "Mutation"},
 		Types: []FullType{
 			{

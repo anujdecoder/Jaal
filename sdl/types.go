@@ -22,16 +22,16 @@ type NamedType struct {
 
 // FullType represents a complete type definition from introspection.
 type FullType struct {
-	Kind          TypeKind     `json:"kind"`
-	Name          string       `json:"name"`
-	Description   string       `json:"description"`
-	Fields        []Field      `json:"fields"`
-	InputFields   []InputValue `json:"inputFields"`
-	Interfaces    []TypeRef    `json:"interfaces"`
-	EnumValues    []EnumValue  `json:"enumValues"`
-	PossibleTypes []TypeRef    `json:"possibleTypes"`
-	SpecifiedByURL *string     `json:"specifiedByURL"`
-	Directives    []Directive  `json:"directives"`
+	Kind           TypeKind     `json:"kind"`
+	Name           string       `json:"name"`
+	Description    string       `json:"description"`
+	Fields         []Field      `json:"fields"`
+	InputFields    []InputValue `json:"inputFields"`
+	Interfaces     []TypeRef    `json:"interfaces"`
+	EnumValues     []EnumValue  `json:"enumValues"`
+	PossibleTypes  []TypeRef    `json:"possibleTypes"`
+	SpecifiedByURL *string      `json:"specifiedByURL"`
+	Directives     []Directive  `json:"directives"`
 }
 
 // TypeKind represents the kind of a GraphQL type.
@@ -77,18 +77,18 @@ type TypeRef struct {
 
 // EnumValue represents an enum value definition.
 type EnumValue struct {
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	IsDeprecated      bool   `json:"isDeprecated"`
+	Name              string  `json:"name"`
+	Description       string  `json:"description"`
+	IsDeprecated      bool    `json:"isDeprecated"`
 	DeprecationReason *string `json:"deprecationReason"`
 }
 
 // Directive represents a directive definition.
 type Directive struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
 	Locations   []DirectiveLocation `json:"locations"`
-	Args        []InputValue      `json:"args"`
+	Args        []InputValue        `json:"args"`
 }
 
 // DirectiveLocation represents where a directive can be applied.

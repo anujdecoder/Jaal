@@ -382,14 +382,17 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			for name, f := range t.Fields {
 				var args []InputValue
 				for name, a := range f.Args {
-					// InputValue for ARGUMENT_DEFINITION deprecation (spec); default
-					// false/nil (stubs lifted; full support via Field args in future).
-					// Matches inputFields extension.
+					// InputValue for ARGUMENT_DEFINITION deprecation (spec).
+					// Use actual deprecation data from Argument struct.
+					var depReason *string
+					if a.IsDeprecated {
+						depReason = a.DeprecationReason
+					}
 					args = append(args, InputValue{
 						Name:              name,
-						Type:              Type{Inner: a},
-						IsDeprecated:      false,
-						DeprecationReason: nil,
+						Type:              Type{Inner: a.Type},
+						IsDeprecated:      a.IsDeprecated,
+						DeprecationReason: depReason,
 					})
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
@@ -412,14 +415,17 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			for name, f := range t.Fields {
 				var args []InputValue
 				for name, a := range f.Args {
-					// InputValue for ARGUMENT_DEFINITION deprecation (spec); default
-					// false/nil (stubs lifted; full support via Field args in future).
-					// Matches inputFields extension.
+					// InputValue for ARGUMENT_DEFINITION deprecation (spec).
+					// Use actual deprecation data from Argument struct.
+					var depReason *string
+					if a.IsDeprecated {
+						depReason = a.DeprecationReason
+					}
 					args = append(args, InputValue{
 						Name:              name,
-						Type:              Type{Inner: a},
-						IsDeprecated:      false,
-						DeprecationReason: nil,
+						Type:              Type{Inner: a.Type},
+						IsDeprecated:      a.IsDeprecated,
+						DeprecationReason: depReason,
 					})
 				}
 				sort.Slice(args, func(i, j int) bool { return args[i].Name < args[j].Name })
@@ -464,10 +470,15 @@ func (s *introspection) registerType(schema *schemabuilder.Schema) {
 			var enumVals []EnumValue
 			for k, v := range t.ReverseMap {
 				val := fmt.Sprintf("%v", k)
-				// DeprecationReason: nil (omitted via omitempty; ensures not marked
-				// deprecated in playground).
+				// Check for enum value deprecation from ValueDeprecations map.
+				isDep := false
+				var depReason *string
+				if reason, ok := t.ValueDeprecations[v]; ok && reason != "" {
+					isDep = true
+					depReason = &reason
+				}
 				enumVals = append(enumVals,
-					EnumValue{Name: v, Description: val, IsDeprecated: false, DeprecationReason: nil})
+					EnumValue{Name: v, Description: val, IsDeprecated: isDep, DeprecationReason: depReason})
 			}
 			sort.Slice(enumVals, func(i, j int) bool { return enumVals[i].Name < enumVals[j].Name })
 			return enumVals
@@ -542,7 +553,7 @@ func collectTypes(typ graphql.Type, types map[string]graphql.Type) {
 			collectTypes(field.Type, types)
 
 			for _, arg := range field.Args {
-				collectTypes(arg, types)
+				collectTypes(arg.Type, types)
 			}
 		}
 
@@ -565,7 +576,7 @@ func collectTypes(typ graphql.Type, types map[string]graphql.Type) {
 			collectTypes(field.Type, types)
 
 			for _, arg := range field.Args {
-				collectTypes(arg, types)
+				collectTypes(arg.Type, types)
 			}
 		}
 		for _, object := range typ.Types {

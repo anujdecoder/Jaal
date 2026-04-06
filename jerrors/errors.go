@@ -26,7 +26,7 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-//NestErrorPaths is used to nest paths along with the error
+// NestErrorPaths is used to nest paths along with the error
 func NestErrorPaths(e error, path string) error {
 	err := ConvertError(e)
 

@@ -131,4 +131,3 @@ func TestHTTPContentType(t *testing.T) {
 		t.Errorf("expected response to match, but received %s", diff)
 	}
 }
-

@@ -190,4 +190,86 @@ func TestGetGraphqlServer(t *testing.T) {
 	fetched := userByIdData["user"].(map[string]interface{})
 	require.Equal(t, "u1", fetched["id"], "fetched user ID")
 	require.Equal(t, "John Doe", fetched["name"], "fetched user name")
+
+	// 7. Deprecation tests: verify deprecated args and enum values appear in introspection
+	// 7.1. Verify deprecated argument (oldFilter) in searchUsers
+	deprecationQuery := `{
+		__type(name: "Query") {
+			fields {
+				name
+				args {
+					name
+					isDeprecated
+					deprecationReason
+				}
+			}
+		}
+	}`
+	deprecationData := postQuery(deprecationQuery)
+	queryTypeFields := deprecationData["__type"].(map[string]interface{})["fields"].([]interface{})
+
+	var searchUsersField map[string]interface{}
+	for _, f := range queryTypeFields {
+		field := f.(map[string]interface{})
+		if field["name"].(string) == "searchUsers" {
+			searchUsersField = field
+			break
+		}
+	}
+	require.NotNil(t, searchUsersField, "searchUsers field should exist")
+
+	searchUsersArgs := searchUsersField["args"].([]interface{})
+	var oldFilterArg map[string]interface{}
+	var filterArg map[string]interface{}
+	for _, a := range searchUsersArgs {
+		arg := a.(map[string]interface{})
+		name := arg["name"].(string)
+		if name == "oldFilter" {
+			oldFilterArg = arg
+		} else if name == "filter" {
+			filterArg = arg
+		}
+	}
+
+	require.NotNil(t, oldFilterArg, "oldFilter arg should exist")
+	require.NotNil(t, filterArg, "filter arg should exist")
+	require.Equal(t, true, oldFilterArg["isDeprecated"], "oldFilter should be deprecated")
+	require.Equal(t, "Use 'filter' instead. The oldFilter parameter will be removed in v2.0.", oldFilterArg["deprecationReason"])
+	require.Equal(t, false, filterArg["isDeprecated"], "filter should not be deprecated")
+
+	// 7.2. Verify deprecated enum values (GUEST in Role)
+	enumDeprecationQuery := `{
+		roleType: __type(name: "Role") {
+			name
+			enumValues {
+				name
+				isDeprecated
+				deprecationReason
+			}
+		}
+	}`
+	enumData := postQuery(enumDeprecationQuery)
+
+	// Check Role enum
+	roleType := enumData["roleType"].(map[string]interface{})
+	roleEnumValues := roleType["enumValues"].([]interface{})
+	for _, ev := range roleEnumValues {
+		enumVal := ev.(map[string]interface{})
+		name := enumVal["name"].(string)
+		if name == "GUEST" {
+			require.Equal(t, true, enumVal["isDeprecated"], "GUEST should be deprecated")
+			require.Equal(t, "Use MEMBER instead. Guest access is being phased out.", enumVal["deprecationReason"])
+		} else if name == "ADMIN" || name == "MEMBER" {
+			require.Equal(t, false, enumVal["isDeprecated"], "%s should not be deprecated", name)
+		}
+	}
+
+	// 7.3. Verify queries with deprecated args still work
+	searchWithOldFilter := postQuery(`{ searchUsers(oldFilter: "John", limit: 10) { id name } }`)
+	searchResults := searchWithOldFilter["searchUsers"].([]interface{})
+	require.GreaterOrEqual(t, len(searchResults), 1, "search with deprecated oldFilter should work")
+
+	searchWithNewFilter := postQuery(`{ searchUsers(filter: "John", limit: 10) { id name } }`)
+	searchResultsNew := searchWithNewFilter["searchUsers"].([]interface{})
+	require.GreaterOrEqual(t, len(searchResultsNew), 1, "search with new filter should work")
 }

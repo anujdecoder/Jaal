@@ -31,19 +31,21 @@ func NewSchema() *Schema {
 // the corresponding map of the enums.
 //
 // For example a enum could be declared as follows:
-//   type enumType int32
-//   const (
-//	  one   enumType = 1
-//	  two   enumType = 2
-//	  three enumType = 3
-//   )
+//
+//	  type enumType int32
+//	  const (
+//		  one   enumType = 1
+//		  two   enumType = 2
+//		  three enumType = 3
+//	  )
 //
 // Then the Enum can be registered as:
-//   s.Enum(enumType(1), map[string]interface{}{
-//     "one":   enumType(1),
-//     "two":   enumType(2),
-//     "three": enumType(3),
-//   }, WithDescription("My enum description"))
+//
+//	s.Enum(enumType(1), map[string]interface{}{
+//	  "one":   enumType(1),
+//	  "two":   enumType(2),
+//	  "three": enumType(3),
+//	}, WithDescription("My enum description"))
 func (s *Schema) Enum(val interface{}, enumMap interface{}, opts ...TypeOption) {
 	typ := reflect.TypeOf(val)
 	if s.enumTypes == nil {
@@ -52,7 +54,12 @@ func (s *Schema) Enum(val interface{}, enumMap interface{}, opts ...TypeOption) 
 
 	eMap, rMap := getEnumMap(enumMap, typ)
 	cfg := applyTypeOptions(opts)
-	s.enumTypes[typ] = &EnumMapping{Map: eMap, ReverseMap: rMap, Description: cfg.description}
+	s.enumTypes[typ] = &EnumMapping{
+		Map:               eMap,
+		ReverseMap:        rMap,
+		Description:       cfg.description,
+		ValueDeprecations: cfg.enumDeprecations,
+	}
 }
 
 func getEnumMap(enumMap interface{}, typ reflect.Type) (map[string]interface{}, map[interface{}]string) {
@@ -221,7 +228,7 @@ func (s *Schema) Build() (*graphql.Schema, error) {
 	}, nil
 }
 
-//MustBuild builds a schema and panics if an error occurs.
+// MustBuild builds a schema and panics if an error occurs.
 func (s *Schema) MustBuild() *graphql.Schema {
 	built, err := s.Build()
 	if err != nil {
@@ -267,6 +274,7 @@ func copyObject(object *Object) *Object {
 			Fn:                m.Fn,
 			Description:       m.Description,
 			DeprecationReason: m.DeprecationReason,
+			ArgDeprecations:   m.ArgDeprecations,
 		}
 	}
 
@@ -299,10 +307,12 @@ func copyInputObject(input *InputObject) *InputObject {
 
 func copyEnumMappings(mapping *EnumMapping) *EnumMapping {
 	// Copy Description for enums (descriptions feature; to graphql.Enum).
+	// Copy ValueDeprecations for enum value deprecation support.
 	enum := &EnumMapping{
-		Map:         make(map[string]interface{}, len(mapping.Map)),
-		ReverseMap:  make(map[interface{}]string, len(mapping.ReverseMap)),
-		Description: mapping.Description,
+		Map:               make(map[string]interface{}, len(mapping.Map)),
+		ReverseMap:        make(map[interface{}]string, len(mapping.ReverseMap)),
+		Description:       mapping.Description,
+		ValueDeprecations: make(map[string]string, len(mapping.ValueDeprecations)),
 	}
 
 	for key, value := range mapping.Map {
@@ -311,6 +321,10 @@ func copyEnumMappings(mapping *EnumMapping) *EnumMapping {
 
 	for key, value := range mapping.ReverseMap {
 		enum.ReverseMap[key] = value
+	}
+
+	for key, value := range mapping.ValueDeprecations {
+		enum.ValueDeprecations[key] = value
 	}
 
 	return enum

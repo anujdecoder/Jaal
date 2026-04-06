@@ -1,0 +1,109 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+scalar DateTime @specifiedBy(url: "https://tools.ietf.org/html/rfc3339")
+
+"Role for user access control (ADMIN full, MEMBER standard, GUEST limited)."
+enum Role {
+  "ADMIN"
+  ADMIN
+  "GUEST"
+  GUEST @deprecated(reason: "Use MEMBER instead. Guest access is being phased out.")
+  "MEMBER"
+  MEMBER
+}
+
+"Create user by identifier (oneOf id/email) and user fields."
+input CreateUserByContactInput {
+  "Identifier input payload."
+  identifier: IdentifierInput
+  "User input payload."
+  userInput: UserInput
+}
+
+"Input for creating a new user (supports name, email, role etc; age field deprecated for legacy)."
+input CreateUserInput {
+  "Age in years (deprecated)."
+  age: Int @deprecated(reason: "Use birthdate instead")
+  "Email address."
+  email: String
+  "Whether the user is active."
+  isActive: Boolean
+  "Name of the user."
+  name: String
+  "Reputation score."
+  reputation: Float
+  "User role."
+  role: Role
+}
+
+"OneOf identifier: exactly one of ID or email (spec input union)."
+input IdentifierInput @oneOf {
+  "Email address to identify an existing user."
+  email: String
+  "User ID to identify an existing user."
+  id: ID
+}
+
+"User fields for creation (name, email etc)."
+input UserInput {
+  "Age in years."
+  age: Int
+  "Email address."
+  email: String
+  "Whether the user is active."
+  isActive: Boolean
+  "Name of the user."
+  name: String
+  "Reputation score."
+  reputation: Float
+  "User role."
+  role: Role
+}
+
+type Mutation {
+  "Creates a new user from input data."
+  createUser(input: CreateUserInput): User
+  "Creates user by oneOf identifier (id/email) and user fields; errors if exists."
+  createUserByContact(input: CreateUserByContactInput): User
+}
+
+type Query {
+  "Returns all users in the system."
+  allUsers: [User!]!
+  "Returns the current authenticated user (if any)."
+  me: User
+  "Search users by name or email."
+  searchUsers(filter: String, limit: Int, oldFilter: String @deprecated(reason: "Use 'filter' instead. The oldFilter parameter will be removed in v2.0.")): [User!]!
+  "Fetch user by ID."
+  user(iD: ID): User
+}
+
+type Subscription {
+  "Subscribe to the current server time."
+  currentTime: DateTime!
+}
+
+"User payload representing a person in the system."
+type User {
+  "Age in years."
+  age: Int!
+  "Account creation timestamp."
+  createdAt: DateTime!
+  "Email address."
+  email: String!
+  "Unique identifier for the user."
+  id: ID!
+  "Whether the user is active."
+  isActive: Boolean!
+  "Full name of the user."
+  name: String!
+  "Reputation score (0-10)."
+  reputation: Float!
+  "User role (ADMIN/MEMBER/GUEST)."
+  role: Role!
+}
+

@@ -72,13 +72,14 @@ type httpResponse struct {
 
 // Embedded GraphQL Playground assets (downloaded once during development; inlined
 // in HTML at runtime for no external loads/CDN/MIME/path issues).
-//go:embed playground/graphql-playground-middleware.js
+//
+//go:embed assets/playground/graphql-playground-middleware.js
 var playgroundJS []byte
 
-//go:embed playground/graphql-playground-middleware.css
+//go:embed assets/playground/graphql-playground-middleware.css
 var playgroundCSS []byte
 
-//go:embed playground/graphql-playground-favicon.png
+//go:embed assets/playground/graphql-playground-favicon.png
 var playgroundFavicon []byte
 
 func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

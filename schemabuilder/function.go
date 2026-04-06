@@ -59,6 +59,14 @@ func (sb *schemaBuilder) buildFunctionAndFuncCtx(typ reflect.Type, m *method) (*
 		return nil, nil, err
 	}
 
+	// Apply argument deprecations from method config
+	for argName, reason := range m.ArgDeprecations {
+		if arg, ok := args[argName]; ok {
+			arg.IsDeprecated = true
+			arg.DeprecationReason = &reason
+		}
+	}
+
 	return &graphql.Field{
 		Resolve: func(ctx context.Context, source, funcRawArgs interface{}, selectionSet *graphql.SelectionSet) (interface{}, error) {
 			// Set up function arguments.
@@ -247,9 +255,9 @@ func (funcCtx *funcContext) getReturnType(sb *schemaBuilder, m *method) (graphql
 	return retType, nil
 }
 
-// argsTypeMap returns a map from input arg field names to a graphQL type associated with that field name.
-func (funcCtx *funcContext) argsTypeMap(argType graphql.Type) (map[string]graphql.Type, error) {
-	args := make(map[string]graphql.Type)
+// argsTypeMap returns a map from input arg field names to a graphQL argument associated with that field name.
+func (funcCtx *funcContext) argsTypeMap(argType graphql.Type) (map[string]*graphql.Argument, error) {
+	args := make(map[string]*graphql.Argument)
 	if funcCtx.hasArgs {
 		inputObject, ok := argType.(*graphql.InputObject)
 		if !ok {
@@ -257,7 +265,7 @@ func (funcCtx *funcContext) argsTypeMap(argType graphql.Type) (map[string]graphq
 		}
 
 		for name, typ := range inputObject.InputFields {
-			args[name] = typ
+			args[name] = &graphql.Argument{Type: typ}
 		}
 	}
 	return args, nil
