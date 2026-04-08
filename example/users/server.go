@@ -20,15 +20,19 @@ func GetGraphqlServer() (http.Handler, error) {
 	// Register all via aggregator (scalars to subs; see register_schema.go).
 	RegisterSchema(sb, server)
 
+	// Get directive definitions and visitors before building
+	directiveDefs := sb.GetDirectiveDefinitions()
+	directiveVisitors := sb.GetDirectiveVisitors()
+
 	// Build schema (reflect-based; err on dup/invalid types).
 	schema, err := sb.Build()
 	if err != nil {
 		return nil, err
 	}
 
-	// Add introspection (__schema/__type; enables Playground per jaal.HTTPHandler).
-	introspection.AddIntrospectionToSchema(schema)
+	// Add introspection with custom directive definitions.
+	introspection.AddIntrospectionToSchemaWithDirectives(schema, directiveDefs)
 
-	// Return handler (serves POST queries + GET UI; no CDN).
-	return jaal.HTTPHandler(schema), nil
+	// Return handler with directive visitors (serves POST queries + GET UI; no CDN).
+	return jaal.HTTPHandler(schema, jaal.WithDirectiveVisitors(directiveVisitors)), nil
 }

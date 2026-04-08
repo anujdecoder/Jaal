@@ -89,6 +89,8 @@ func (sb *schemaBuilder) buildFunctionAndFuncCtx(typ reflect.Type, m *method) (*
 		// DeprecationReason for FIELD_DEFINITION (from Deprecated option).
 		DeprecationReason: m.DeprecationReason,
 		IsDeprecated:      m.DeprecationReason != nil,
+		// Directives applied to this field (from FieldDirective option).
+		Directives: m.Directives,
 		LazyResolver: func(ctx context.Context, fun interface{}) (interface{}, error) {
 			callableFunc := reflect.ValueOf(fun)
 

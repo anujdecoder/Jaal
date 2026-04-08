@@ -15,8 +15,8 @@ This document outlines a prioritized implementation plan to achieve full GraphQL
 - ✅ Type system (scalars, objects, interfaces, unions): Complete  
 - ✅ Introspection: Complete
 - ✅ Built-in directives (@skip, @include, @deprecated, @specifiedBy, @oneOf): Complete
-- ❌ Custom directives: Not implemented
-- ⚠️ Advanced validation: Partial
+- ✅ Custom directives: **IMPLEMENTED**
+- ✅ Advanced validation: Complete
 
 ---
 
@@ -111,10 +111,10 @@ schema.EnumWithConfig(Status(0), []EnumValueConfig{
 
 ---
 
-### Phase 2: Custom Directives Framework (Weeks 4-8)
+### Phase 2: Custom Directives Framework (Weeks 4-8) ✅ COMPLETE
 **Goal:** Implement the ability to define and use custom directives
 
-#### 2.1 Directive Definition Schema
+#### 2.1 Directive Definition Schema ✅ COMPLETE
 **Priority:** P1 (High)  
 **Complexity:** High  
 **Files:** New: `schemabuilder/directive.go`, `graphql/directive.go`
@@ -122,49 +122,15 @@ schema.EnumWithConfig(Status(0), []EnumValueConfig{
 **Description:**
 Implement the core infrastructure for defining custom directives, including directive types, locations, and arguments.
 
-**Implementation Steps:**
-1. Create `Directive` type in `graphql/directive.go`:
-   ```go
-   type DirectiveDefinition struct {
-       Name        string
-       Description string
-       Locations   []DirectiveLocation
-       Args        map[string]Type
-       IsRepeatable bool  // 2021+ feature
-   }
-   ```
-2. Define all directive locations from spec:
-   - QUERY, MUTATION, SUBSCRIPTION, FIELD, FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT
-   - SCHEMA, SCALAR, OBJECT, FIELD_DEFINITION, ARGUMENT_DEFINITION, INTERFACE, UNION, ENUM, ENUM_VALUE, INPUT_OBJECT, INPUT_FIELD_DEFINITION
-3. Add directive registration API to `schemabuilder.Schema`
-4. Include directives in introspection (`__Schema.directives`)
-
-**Usage Example:**
-```go
-// Define a custom directive
-sb.Directive("auth", DirectiveConfig{
-    Description: "Marks fields requiring authentication",
-    Locations:   []DirectiveLocation{FIELD_DEFINITION},
-    Args: map[string]graphql.Type{
-        "role": &graphql.NonNull{Type: &graphql.Scalar{Type: "String"}},
-    },
-})
-
-// Use in schema
-obj.FieldFunc("adminData", resolver, schemabuilder.Directive("auth", map[string]interface{}{
-    "role": "ADMIN",
-}))
-```
-
 **Acceptance Criteria:**
-- [ ] Custom directives can be defined with name, description, locations, args
-- [ ] Directives appear in introspection
-- [ ] SDL output includes directive definitions
-- [ ] Validation rejects directives used in wrong locations
+- [x] Custom directives can be defined with name, description, locations, args
+- [x] Directives appear in introspection
+- [x] SDL output includes directive definitions
+- [x] Validation rejects directives used in wrong locations
 
 ---
 
-#### 2.2 Directive Execution Framework
+#### 2.2 Directive Execution Framework ✅ COMPLETE
 **Priority:** P1 (High)  
 **Complexity:** High  
 **Files:** `graphql/execute.go`, `schemabuilder/directive.go`
@@ -172,44 +138,15 @@ obj.FieldFunc("adminData", resolver, schemabuilder.Directive("auth", map[string]
 **Description:**
 Implement directive execution hooks that allow directives to transform behavior during query execution.
 
-**Implementation Steps:**
-1. Define directive visitor interface:
-   ```go
-   type DirectiveVisitor interface {
-       VisitField(ctx context.Context, directive *Directive, field *Field, source interface{}) (interface{}, error)
-       VisitArgument(ctx context.Context, directive *Directive, arg *Argument, value interface{}) (interface{}, error)
-       // ... other locations
-   }
-   ```
-2. Modify executor to check and invoke directive visitors
-3. Support directive composition (multiple directives on same element)
-4. Handle directive arguments during execution
-
-**Usage Example:**
-```go
-// Implement directive behavior
-sb.RegisterDirectiveImplementation("auth", &AuthDirectiveVisitor{})
-
-type AuthDirectiveVisitor struct{}
-
-func (v *AuthDirectiveVisitor) VisitField(ctx context.Context, d *graphql.Directive, f *graphql.Field, src interface{}) (interface{}, error) {
-    role := d.Args["role"].(string)
-    if !hasRole(ctx, role) {
-        return nil, fmt.Errorf("unauthorized: requires role %s", role)
-    }
-    return f.Resolve(ctx, src, nil, nil)
-}
-```
-
 **Acceptance Criteria:**
-- [ ] Directives can intercept field resolution
-- [ ] Directives can transform argument values
-- [ ] Multiple directives execute in defined order
-- [ ] Directive errors propagate correctly
+- [x] Directives can intercept field resolution
+- [x] Directives can transform argument values
+- [x] Multiple directives execute in defined order
+- [x] Directive errors propagate correctly
 
 ---
 
-#### 2.3 Repeatable Directives
+#### 2.3 Repeatable Directives ✅ COMPLETE
 **Priority:** P1 (High)  
 **Complexity:** Medium  
 **Files:** `graphql/directive.go`, `graphql/parser.go`
@@ -217,35 +154,10 @@ func (v *AuthDirectiveVisitor) VisitField(ctx context.Context, d *graphql.Direct
 **Description:**
 Support the `isRepeatable: true` flag on directive definitions (Oct 2021+ feature).
 
-**Implementation Steps:**
-1. Add `IsRepeatable` field to `DirectiveDefinition`
-2. Modify parser to allow multiple instances of repeatable directives
-3. Update validation to reject duplicate non-repeatable directives
-4. Ensure introspection includes `isRepeatable`
-
-**Usage Example:**
-```go
-// Define repeatable directive
-sb.Directive("cache", DirectiveConfig{
-    Description:  "Caching configuration",
-    Locations:    []DirectiveLocation{FIELD_DEFINITION},
-    IsRepeatable: true,  // Can be used multiple times
-    Args: map[string]graphql.Type{
-        "ttl": &graphql.Scalar{Type: "Int"},
-    },
-})
-
-// Usage
-obj.FieldFunc("data", resolver,
-    schemabuilder.Directive("cache", map[string]interface{}{"ttl": 60}),
-    schemabuilder.Directive("cache", map[string]interface{}{"ttl": 300}), // Different config
-)
-```
-
 **Acceptance Criteria:**
-- [ ] Repeatable directives can be applied multiple times
-- [ ] Non-repeatable directives rejected when duplicated
-- [ ] Introspection shows `isRepeatable: true`
+- [x] Repeatable directives can be applied multiple times
+- [x] Non-repeatable directives rejected when duplicated
+- [x] Introspection shows `isRepeatable: true`
 
 ---
 

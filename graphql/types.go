@@ -201,6 +201,9 @@ type Field struct {
 	IsDeprecated      bool
 	DeprecationReason *string `json:"deprecationReason,omitempty"`
 	Description       string  `json:"description,omitempty"`
+
+	// Directives applied to this field (FIELD_DEFINITION location).
+	Directives []*DirectiveInstance `json:"-"`
 }
 
 // Schema used to validate and resolve the queries

@@ -85,10 +85,11 @@ type EnumValue struct {
 
 // Directive represents a directive definition.
 type Directive struct {
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	Locations   []DirectiveLocation `json:"locations"`
-	Args        []InputValue        `json:"args"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	Locations     []DirectiveLocation `json:"locations"`
+	Args          []InputValue        `json:"args"`
+	IsRepeatable  bool                `json:"isRepeatable"`
 }
 
 // DirectiveLocation represents where a directive can be applied.

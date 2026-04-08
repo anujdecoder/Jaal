@@ -27,6 +27,13 @@ func (p *Printer) Print() string {
 	// Print schema definition if we have root types
 	p.printSchemaDefinition(&sb)
 
+	// Print custom directive definitions first
+	for _, d := range p.schema.Directives {
+		if !p.isBuiltInDirective(d.Name) {
+			sb.WriteString(p.printDirective(d))
+		}
+	}
+
 	// Group types by kind for organized output
 	enums := []FullType{}
 	scalars := []FullType{}
@@ -103,6 +110,18 @@ func (p *Printer) isBuiltInType(name string) bool {
 	return builtins[name]
 }
 
+// isBuiltInDirective checks if a directive is a GraphQL built-in directive.
+func (p *Printer) isBuiltInDirective(name string) bool {
+	builtins := map[string]bool{
+		"skip":        true,
+		"include":     true,
+		"deprecated":  true,
+		"specifiedBy": true,
+		"oneOf":       true,
+	}
+	return builtins[name]
+}
+
 // formatDescription formats a description for SDL output.
 func (p *Printer) formatDescription(description string, indent string) string {
 	if description == "" {
@@ -128,6 +147,42 @@ func (p *Printer) formatDescription(description string, indent string) string {
 
 	// Use single line string
 	return indent + "\"" + description + "\"\n"
+}
+
+// printDirective prints a directive definition.
+func (p *Printer) printDirective(d Directive) string {
+	var sb strings.Builder
+	sb.WriteString(p.formatDescription(d.Description, ""))
+	sb.WriteString("directive @" + d.Name)
+
+	// Print arguments if any
+	if len(d.Args) > 0 {
+		sb.WriteString("(")
+		for i, arg := range d.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(arg.Name + ": " + p.printTypeRef(arg.Type))
+		}
+		sb.WriteString(")")
+	}
+
+	// Print repeatable if applicable
+	if d.IsRepeatable {
+		sb.WriteString(" repeatable")
+	}
+
+	// Print locations
+	sb.WriteString(" on ")
+	for i, loc := range d.Locations {
+		if i > 0 {
+			sb.WriteString(" | ")
+		}
+		sb.WriteString(string(loc))
+	}
+
+	sb.WriteString("\n\n")
+	return sb.String()
 }
 
 // printTypeRef converts a TypeRef to its SDL string representation.

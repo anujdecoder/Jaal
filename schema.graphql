@@ -4,6 +4,18 @@ schema {
   subscription: Subscription
 }
 
+"Requires authentication. Optionally checks for a specific role."
+directive @auth(role: String) on FIELD_DEFINITION
+
+"Caches the field result for the specified TTL in seconds."
+directive @cache(ttl: Int) on FIELD_DEFINITION
+
+"Transforms string output to uppercase."
+directive @uppercase on FIELD_DEFINITION
+
+"Logs field access for debugging."
+directive @log(message: String) on FIELD_DEFINITION
+
 scalar DateTime @specifiedBy(url: "https://tools.ietf.org/html/rfc3339")
 
 "Role for user access control (ADMIN full, MEMBER standard, GUEST limited)."

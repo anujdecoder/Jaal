@@ -14,6 +14,7 @@ type Schema struct {
 	objects      map[string]*Object
 	enumTypes    map[reflect.Type]*EnumMapping
 	inputObjects map[string]*InputObject
+	directives   map[string]*directiveRegistration
 }
 
 // NewSchema creates a new schema.
@@ -145,6 +146,71 @@ func (s *Schema) InputObject(name string, typ interface{}, opts ...TypeOption) *
 	return inputObject
 }
 
+// Directive registers a custom directive definition with optional visitor.
+// Usage:
+//
+//	schema.Directive("auth",
+//	    DirectiveDescription("Requires authentication"),
+//	    DirectiveLocations(graphql.LocationFieldDefinition),
+//	    DirectiveArg("role", reflect.TypeOf("")),
+//	    DirectiveVisitorFunc(authVisitor),
+//	)
+func (s *Schema) Directive(name string, opts ...DirectiveOption) {
+	cfg := applyDirectiveOptions(opts)
+
+	if s.directives == nil {
+		s.directives = make(map[string]*directiveRegistration)
+	}
+
+	s.directives[name] = &directiveRegistration{
+		definition: &graphql.DirectiveDefinition{
+			Name:         name,
+			Description:  cfg.description,
+			Locations:    cfg.locations,
+			Args:         cfg.args,
+			IsRepeatable: cfg.isRepeatable,
+		},
+		visitor: cfg.visitor,
+	}
+}
+
+// GetDirectiveDefinitions returns all registered directive definitions.
+func (s *Schema) GetDirectiveDefinitions() []*graphql.DirectiveDefinition {
+	defs := make([]*graphql.DirectiveDefinition, 0, len(s.directives))
+	for _, reg := range s.directives {
+		defs = append(defs, reg.definition)
+	}
+	return defs
+}
+
+// GetDirectiveVisitor returns the visitor for a directive, if any.
+func (s *Schema) GetDirectiveVisitor(name string) graphql.DirectiveVisitor {
+	if reg, ok := s.directives[name]; ok {
+		return reg.visitor
+	}
+	return nil
+}
+
+// GetDirectiveVisitors returns a map of all directive visitors.
+func (s *Schema) GetDirectiveVisitors() map[string]graphql.DirectiveVisitor {
+	visitors := make(map[string]graphql.DirectiveVisitor)
+	for name, reg := range s.directives {
+		if reg.visitor != nil {
+			visitors[name] = reg.visitor
+		}
+	}
+	return visitors
+}
+
+// GetDirectiveRegistry returns a DirectiveRegistry containing all registered directives.
+func (s *Schema) GetDirectiveRegistry() *graphql.DirectiveRegistry {
+	registry := graphql.NewDirectiveRegistry()
+	for _, reg := range s.directives {
+		registry.Register(reg.definition, reg.visitor)
+	}
+	return registry
+}
+
 type query struct{}
 
 // Query returns an Object struct that we can use to register all the top level
@@ -243,6 +309,7 @@ func (s *Schema) Clone() *Schema {
 		objects:      make(map[string]*Object, len(s.objects)),
 		inputObjects: make(map[string]*InputObject, len(s.inputObjects)),
 		enumTypes:    make(map[reflect.Type]*EnumMapping, len(s.enumTypes)),
+		directives:   make(map[string]*directiveRegistration, len(s.directives)),
 	}
 
 	for key, value := range s.objects {
@@ -255,6 +322,13 @@ func (s *Schema) Clone() *Schema {
 
 	for key, value := range s.enumTypes {
 		copy.enumTypes[key] = copyEnumMappings(value)
+	}
+
+	for key, value := range s.directives {
+		copy.directives[key] = &directiveRegistration{
+			definition: value.definition,
+			visitor:    value.visitor,
+		}
 	}
 
 	return &copy
@@ -275,6 +349,7 @@ func copyObject(object *Object) *Object {
 			Description:       m.Description,
 			DeprecationReason: m.DeprecationReason,
 			ArgDeprecations:   m.ArgDeprecations,
+			Directives:        m.Directives,
 		}
 	}
 

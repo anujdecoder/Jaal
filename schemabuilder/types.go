@@ -11,6 +11,8 @@ import (
 
 	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/golang/protobuf/ptypes/timestamp"
+
+	"go.appointy.com/jaal/graphql"
 )
 
 // Object - an Object represents a Go type and set of methods to be converted into an Object in a GraphQL schema.
@@ -31,6 +33,7 @@ type typeConfig struct {
 	deprecated       string
 	directives       []string
 	enumDeprecations map[string]string // enum value name -> deprecation reason
+	typeDirectives   []*graphql.DirectiveInstance // directives applied to type
 }
 
 // WithDescription sets a description for a registered type.
@@ -62,6 +65,7 @@ type fieldConfig struct {
 	deprecated      string
 	nonNull         bool
 	argDeprecations map[string]string // arg name -> deprecation reason
+	directives      []*graphql.DirectiveInstance // directives applied to field
 }
 
 // FieldDesc sets a description for a field.
@@ -182,6 +186,8 @@ type method struct {
 	DeprecationReason *string
 	// ArgDeprecations marks arguments as deprecated (set via ArgDeprecation option).
 	ArgDeprecations map[string]string // arg name -> deprecation reason
+	// Directives applied to this field (set via FieldDirective option).
+	Directives []*graphql.DirectiveInstance
 }
 
 // EnumMapping is a representation of an enum that includes both the mapping and reverse mapping.
@@ -260,6 +266,7 @@ func (s *Object) FieldFunc(name string, f interface{}, opts ...FieldOption) {
 		Fn:                f,
 		Description:       cfg.description,
 		MarkedNonNullable: cfg.nonNull,
+		Directives:        cfg.directives,
 	}
 	if cfg.deprecated != "" {
 		m.DeprecationReason = &cfg.deprecated

@@ -272,4 +272,52 @@ func TestGetGraphqlServer(t *testing.T) {
 	searchWithNewFilter := postQuery(`{ searchUsers(filter: "John", limit: 10) { id name } }`)
 	searchResultsNew := searchWithNewFilter["searchUsers"].([]interface{})
 	require.GreaterOrEqual(t, len(searchResultsNew), 1, "search with new filter should work")
+
+	// 8. Custom directive tests
+	// 8.1. Verify custom directives appear in introspection
+	directivesQuery := `{
+		__schema {
+			directives {
+				name
+				description
+				locations
+				isRepeatable
+				args { name }
+			}
+		}
+	}`
+	directivesData := postQuery(directivesQuery)
+	schemaDirectives := directivesData["__schema"].(map[string]interface{})["directives"].([]interface{})
+
+	var authDirective, cacheDirective, uppercaseDirective, logDirective map[string]interface{}
+	for _, d := range schemaDirectives {
+		dir := d.(map[string]interface{})
+		switch dir["name"] {
+		case "auth":
+			authDirective = dir
+		case "cache":
+			cacheDirective = dir
+		case "uppercase":
+			uppercaseDirective = dir
+		case "log":
+			logDirective = dir
+		}
+	}
+
+	require.NotNil(t, authDirective, "auth directive should exist")
+	require.Equal(t, "Requires authentication. Optionally checks for a specific role.", authDirective["description"])
+	authArgs := authDirective["args"].([]interface{})
+	require.GreaterOrEqual(t, len(authArgs), 1, "auth directive should have role arg")
+	authLocations := authDirective["locations"].([]interface{})
+	require.Contains(t, authLocations, "FIELD_DEFINITION", "auth should be on FIELD_DEFINITION")
+
+	require.NotNil(t, cacheDirective, "cache directive should exist")
+	require.Equal(t, true, cacheDirective["isRepeatable"], "cache should be repeatable")
+
+	require.NotNil(t, uppercaseDirective, "uppercase directive should exist")
+	require.NotNil(t, logDirective, "log directive should exist")
+
+	// 8.2. Verify isRepeatable field exists on __Directive type
+	// Note: __Directive is an introspection type; verify via schema directives instead
+	// (isRepeatable already verified in 8.1 above)
 }

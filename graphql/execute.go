@@ -12,7 +12,23 @@ import (
 )
 
 type Executor struct {
-	iterate bool
+	iterate           bool
+	directiveVisitors map[string]DirectiveVisitor
+}
+
+// NewExecutor creates a new Executor with optional directive visitors.
+// Directive visitors are called during field resolution for fields with directives.
+func NewExecutor(directiveVisitors map[string]DirectiveVisitor) *Executor {
+	return &Executor{
+		directiveVisitors: directiveVisitors,
+	}
+}
+
+// NewExecutorWithRegistry creates a new Executor from a DirectiveRegistry.
+func NewExecutorWithRegistry(registry *DirectiveRegistry) *Executor {
+	return &Executor{
+		directiveVisitors: registry.GetAllVisitors(),
+	}
 }
 
 type computationOutput struct {
@@ -180,6 +196,22 @@ func (e *Executor) executeObject(ctx context.Context, typ *Object, source interf
 }
 
 func (e *Executor) resolveAndExecute(ctx context.Context, field *Field, source interface{}, selection *Selection) (interface{}, error) {
+	// Execute type-system directives (FIELD_DEFINITION location) on the field
+	if len(field.Directives) > 0 && e.directiveVisitors != nil {
+		for _, directive := range field.Directives {
+			if visitor, ok := e.directiveVisitors[directive.Name]; ok {
+				result, err := visitor.VisitField(ctx, directive, field, source)
+				if err != nil {
+					return nil, err
+				}
+				// If visitor returns a non-nil result, short-circuit and return that result
+				if result != nil {
+					return e.execute(ctx, field.Type, result, selection.SelectionSet)
+				}
+			}
+		}
+	}
+
 	value, err := safeExecuteResolver(ctx, field, source, selection.Args, selection.SelectionSet)
 	if err != nil {
 		return nil, err

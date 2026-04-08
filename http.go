@@ -16,7 +16,16 @@ import (
 type HandlerOption func(*handlerOptions)
 
 type handlerOptions struct {
-	Middlewares []MiddlewareFunc
+	Middlewares       []MiddlewareFunc
+	DirectiveVisitors map[string]graphql.DirectiveVisitor
+}
+
+// WithDirectiveVisitors sets the directive visitors for the handler.
+// This allows custom directives to execute during query resolution.
+func WithDirectiveVisitors(visitors map[string]graphql.DirectiveVisitor) HandlerOption {
+	return func(h *handlerOptions) {
+		h.DirectiveVisitors = visitors
+	}
 }
 
 // HTTPHandler implements the handler required for executing the graphql queries and mutations.
@@ -28,16 +37,18 @@ type handlerOptions struct {
 // The playground assets are embedded via go:embed (stdlib only), following the
 // minimalistic pattern of the codebase.
 func HTTPHandler(schema *graphql.Schema, opts ...HandlerOption) http.Handler {
-	h := &httpHandler{
-		handler: handler{
-			schema:   schema,
-			executor: &graphql.Executor{},
-		},
-	}
-
 	o := handlerOptions{}
 	for _, opt := range opts {
 		opt(&o)
+	}
+
+	executor := graphql.NewExecutor(o.DirectiveVisitors)
+
+	h := &httpHandler{
+		handler: handler{
+			schema:   schema,
+			executor: executor,
+		},
 	}
 
 	prev := h.execute

@@ -11,10 +11,11 @@ import (
 )
 
 type introspection struct {
-	types        map[string]graphql.Type
-	query        graphql.Type
-	mutation     graphql.Type
-	subscription graphql.Type
+	types            map[string]graphql.Type
+	query            graphql.Type
+	mutation         graphql.Type
+	subscription     graphql.Type
+	customDirectives []*graphql.DirectiveDefinition
 }
 
 type DirectiveLocation string
@@ -36,6 +37,14 @@ const (
 	ARGUMENT_DEFINITION    DirectiveLocation = "ARGUMENT_DEFINITION"    // for input arg deprecation
 	INPUT_FIELD_DEFINITION DirectiveLocation = "INPUT_FIELD_DEFINITION" // for input field deprecation
 	INPUT_OBJECT_LOCATION  DirectiveLocation = "INPUT_OBJECT"           // for @oneOf input unions
+	// Additional locations for custom directives
+	FIELD_DEFINITION    DirectiveLocation = "FIELD_DEFINITION"
+	LOCATION_OBJECT     DirectiveLocation = "OBJECT"
+	LOCATION_INTERFACE  DirectiveLocation = "INTERFACE"
+	LOCATION_UNION      DirectiveLocation = "UNION"
+	LOCATION_ENUM       DirectiveLocation = "ENUM"
+	LOCATION_ENUM_VALUE DirectiveLocation = "ENUM_VALUE"
+	LOCATION_SCHEMA     DirectiveLocation = "SCHEMA"
 )
 
 type TypeKind string
@@ -118,10 +127,11 @@ func (s *introspection) registerEnumValue(schema *schemabuilder.Schema) {
 }
 
 type Directive struct {
-	Name        string
-	Description string
-	Locations   []DirectiveLocation
-	Args        []InputValue
+	Name          string
+	Description   string
+	Locations     []DirectiveLocation
+	Args          []InputValue
+	IsRepeatable  bool
 }
 
 func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
@@ -138,6 +148,9 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 	obj.FieldFunc("args", func(in Directive) []InputValue {
 		return in.Args
 	}, schemabuilder.FieldDesc("Directive arguments."))
+	obj.FieldFunc("isRepeatable", func(in Directive) bool {
+		return in.IsRepeatable
+	}, schemabuilder.FieldDesc("Whether this directive can be applied multiple times."))
 
 	// if err := schemabuilder.RegisterScalar(reflect.TypeOf(DirectiveLocation("")), "directiveLocation", func(value interface{}, dest reflect.Value) error {
 	// 	asString, ok := value.(string)
@@ -165,6 +178,14 @@ func (s *introspection) registerDirective(schema *schemabuilder.Schema) {
 		"ARGUMENT_DEFINITION":    DirectiveLocation(ARGUMENT_DEFINITION),
 		"INPUT_FIELD_DEFINITION": DirectiveLocation(INPUT_FIELD_DEFINITION),
 		"INPUT_OBJECT":           DirectiveLocation(INPUT_OBJECT_LOCATION), // for @oneOf
+		// Additional locations for custom directives
+		"FIELD_DEFINITION": DirectiveLocation(FIELD_DEFINITION),
+		"OBJECT":           DirectiveLocation(LOCATION_OBJECT),
+		"INTERFACE":        DirectiveLocation(LOCATION_INTERFACE),
+		"UNION":            DirectiveLocation(LOCATION_UNION),
+		"ENUM":             DirectiveLocation(LOCATION_ENUM),
+		"ENUM_VALUE":       DirectiveLocation(LOCATION_ENUM_VALUE),
+		"SCHEMA":           DirectiveLocation(LOCATION_SCHEMA),
 	}, schemabuilder.WithDescription("Directive locations supported by GraphQL."))
 }
 
@@ -726,15 +747,20 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		}
 		sort.Slice(types, func(i, j int) bool { return types[i].Inner.String() < types[j].Inner.String() })
 
+		// Build directives list: built-ins + custom directives
+		directives := []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective, oneOfDirective}
+
+		// Add custom directives
+		for _, def := range s.customDirectives {
+			directives = append(directives, convertDirectiveDefinition(def))
+		}
+
 		return &Schema{
 			Types:            types,
 			QueryType:        &Type{Inner: s.query},
 			MutationType:     &Type{Inner: s.mutation},
 			SubscriptionType: &Type{Inner: s.subscription},
-			// include @specifiedBy, @deprecated (input values), and @oneOf (input unions/INPUT_OBJECT)
-			// in directives list (spec-compliant for Sept 2025). Custom scalars w/ URL,
-			// deprecated inputs/args, and oneOf inputs reflect in introspection.
-			Directives: []Directive{includeDirective, skipDirective, specifiedByDirective, deprecatedDirective, oneOfDirective},
+			Directives:       directives,
 		}
 	})
 
@@ -744,6 +770,31 @@ func (s *introspection) registerQuery(schema *schemabuilder.Schema) {
 		}
 		return nil
 	})
+}
+
+// convertDirectiveDefinition converts a graphql.DirectiveDefinition to introspection Directive.
+func convertDirectiveDefinition(def *graphql.DirectiveDefinition) Directive {
+	directive := Directive{
+		Name:         def.Name,
+		Description:  def.Description,
+		IsRepeatable: def.IsRepeatable,
+	}
+
+	// Convert locations
+	for _, loc := range def.Locations {
+		directive.Locations = append(directive.Locations, DirectiveLocation(loc))
+	}
+
+	// Convert args
+	for name, arg := range def.Args {
+		directive.Args = append(directive.Args, InputValue{
+			Name:        name,
+			Description: arg.Description,
+			Type:        Type{Inner: arg.Type},
+		})
+	}
+
+	return directive
 }
 
 func (s *introspection) registerMutation(schema *schemabuilder.Schema) {
@@ -771,15 +822,22 @@ func (s *introspection) schema() *graphql.Schema {
 
 // AddIntrospectionToSchema adds the introspection fields to existing schema
 func AddIntrospectionToSchema(schema *graphql.Schema) {
+	AddIntrospectionToSchemaWithDirectives(schema, nil)
+}
+
+// AddIntrospectionToSchemaWithDirectives adds the introspection fields to existing schema
+// with support for custom directive definitions.
+func AddIntrospectionToSchemaWithDirectives(schema *graphql.Schema, customDirectives []*graphql.DirectiveDefinition) {
 	types := make(map[string]graphql.Type)
 	collectTypes(schema.Query, types)
 	collectTypes(schema.Mutation, types)
 	collectTypes(schema.Subscription, types)
 	is := &introspection{
-		types:        types,
-		query:        schema.Query,
-		mutation:     schema.Mutation,
-		subscription: schema.Subscription,
+		types:            types,
+		query:            schema.Query,
+		mutation:         schema.Mutation,
+		subscription:     schema.Subscription,
+		customDirectives: customDirectives,
 	}
 	isSchema := is.schema()
 

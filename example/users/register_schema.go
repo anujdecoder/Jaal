@@ -3,11 +3,12 @@ package users
 import "go.appointy.com/jaal/schemabuilder"
 
 // RegisterSchema orchestrates all registrations (scalars/enums/objects/inputs/
-// queries/muts/subs) by calling specific aggregators (per task modularity).
+// queries/muts/subs/directives) by calling specific aggregators (per task modularity).
 // Allows testing full schema or partial (e.g., RegisterInputs alone); follows
 // original RegisterSchema but split for readability. Called by GetGraphqlServer.
 func RegisterSchema(sb *schemabuilder.Schema, s *Server) {
-	// Order: scalars first (DateTime), then enums/objects/inputs, ops last.
+	// Order: directives first (so they can be referenced), then scalars, enums, etc.
+	RegisterDirectives(sb)
 	RegisterScalars(sb)
 	RegisterEnums(sb)
 	RegisterObjects(sb)

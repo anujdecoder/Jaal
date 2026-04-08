@@ -248,6 +248,146 @@ input.FieldFunc("email", func(target *IdentifierInput, source *string) {
 
 Exactly one field must be provided/non-null in queries (enforced during input coercion). This is the recommended way to register oneOf inputs.
 
+## Custom Directives
+
+Jaal supports custom directives per the GraphQL October 2021 specification. You can define custom directives with specified locations, arguments, and runtime behavior using directive visitors.
+
+### Defining Custom Directives
+
+```go
+import (
+    "context"
+    "go.appointy.com/jaal/graphql"
+    "go.appointy.com/jaal/schemabuilder"
+)
+
+// Register a custom @auth directive
+sb.Directive("auth",
+    schemabuilder.DirectiveDescription("Requires authentication with optional role check"),
+    schemabuilder.DirectiveLocations(graphql.LocationFieldDefinition),
+    schemabuilder.DirectiveArgString("role"),
+    schemabuilder.DirectiveVisitorFunc(func(ctx context.Context, d *graphql.DirectiveInstance, f *graphql.Field, src interface{}) (interface{}, error) {
+        // Check authentication from context
+        user := ctx.Value("user")
+        if user == nil {
+            return nil, fmt.Errorf("unauthorized: authentication required")
+        }
+        
+        // Check role if specified
+        if role, ok := d.Args["role"].(string); ok && role != "" {
+            if !hasRole(user, role) {
+                return nil, fmt.Errorf("forbidden: requires role %s", role)
+            }
+        }
+        
+        // Return nil to continue with normal resolution
+        return nil, nil
+    }),
+)
+```
+
+### Applying Directives to Fields
+
+```go
+// Apply directive to a field
+query.FieldFunc("adminData", func(ctx context.Context) *AdminData {
+    return getAdminData()
+}, 
+    schemabuilder.FieldDesc("Admin-only data"),
+    schemabuilder.FieldDirective("auth", map[string]interface{}{"role": "ADMIN"}),
+)
+```
+
+### Repeatable Directives
+
+Directives can be marked as repeatable, allowing multiple applications on the same element:
+
+```go
+// Register a repeatable @cache directive
+sb.Directive("cache",
+    schemabuilder.DirectiveDescription("Caches field results with specified TTL"),
+    schemabuilder.DirectiveLocations(graphql.LocationFieldDefinition),
+    schemabuilder.DirectiveArgInt("ttl"),
+    schemabuilder.DirectiveRepeatable(), // Can be applied multiple times
+    schemabuilder.DirectiveVisitorFunc(cacheVisitor),
+)
+
+// Apply multiple cache directives
+query.FieldFunc("data", resolver,
+    schemabuilder.FieldDirective("cache", map[string]interface{}{"ttl": 60}),
+    schemabuilder.FieldDirective("cache", map[string]interface{}{"ttl": 300}), // Different cache layer
+)
+```
+
+### Using Custom Directives with HTTP Handler
+
+To enable directive execution, pass the directive visitors to the HTTP handler:
+
+```go
+// Get directive definitions and visitors before building
+directiveDefs := sb.GetDirectiveDefinitions()
+directiveVisitors := sb.GetDirectiveVisitors()
+
+// Build schema
+schema, err := sb.Build()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Add introspection with custom directive definitions
+introspection.AddIntrospectionToSchemaWithDirectives(schema, directiveDefs)
+
+// Create handler with directive visitors
+http.Handle("/graphql", jaal.HTTPHandler(schema, jaal.WithDirectiveVisitors(directiveVisitors)))
+```
+
+### Available Directive Locations
+
+Jaal supports all GraphQL directive locations:
+
+**Executable locations:**
+- `graphql.LocationQuery`
+- `graphql.LocationMutation`
+- `graphql.LocationSubscription`
+- `graphql.LocationField`
+- `graphql.LocationFragmentDefinition`
+- `graphql.LocationFragmentSpread`
+- `graphql.LocationInlineFragment`
+
+**Type system locations:**
+- `graphql.LocationSchema`
+- `graphql.LocationScalar`
+- `graphql.LocationObject`
+- `graphql.LocationFieldDefinition`
+- `graphql.LocationArgumentDefinition`
+- `graphql.LocationInterface`
+- `graphql.LocationUnion`
+- `graphql.LocationEnum`
+- `graphql.LocationEnumValue`
+- `graphql.LocationInputObject`
+- `graphql.LocationInputFieldDefinition`
+
+### Directive Introspection
+
+Custom directives appear in introspection queries:
+
+```graphql
+{
+  __schema {
+    directives {
+      name
+      description
+      locations
+      isRepeatable
+      args {
+        name
+        type { name }
+      }
+    }
+  }
+}
+```
+
 ## Custom Scalar Registration
 
 Jaal supports custom scalars via reflection. Use the `WithSpecifiedBy` option to attach the `@specifiedBy(url: String!)` directive on scalars (exposed in introspection __Type.specifiedByURL; e.g., for DateTime RFC).
